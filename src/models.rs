@@ -12,13 +12,13 @@ pub struct QueryPayload {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MutationPayload {
   #[serde(rename = "setJson")]
-  pub set_json: Option<Vec<u8>>,
+  pub set_json: Option<String>,
   #[serde(rename = "deleteJson")]
-  pub delete_json: Option<Vec<u8>>,
+  pub delete_json: Option<String>,
   #[serde(rename = "setNquads")]
-  pub set_nquads: Option<Vec<u8>>,
+  pub set_nquads: Option<String>,
   #[serde(rename = "delNquads")]
-  pub del_nquads: Option<Vec<u8>>,
+  pub del_nquads: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

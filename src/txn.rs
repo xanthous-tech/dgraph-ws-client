@@ -331,22 +331,22 @@ fn generate_mutation(mutate: MutationPayload, commit_now: Option<bool>) -> Mutat
   };
 
   mutation.set_json = match mutate.set_json {
-    Some(v) => v,
+    Some(v) => v.into_bytes(),
     None => Default::default(),
   };
 
   mutation.delete_json = match mutate.delete_json {
-    Some(v) => v,
+    Some(v) => v.into_bytes(),
     None => Default::default(),
   };
 
   mutation.set_nquads = match mutate.set_nquads {
-    Some(v) => v,
+    Some(v) => v.into_bytes(),
     None => Default::default(),
   };
 
   mutation.del_nquads = match mutate.del_nquads {
-    Some(v) => v,
+    Some(v) => v.into_bytes(),
     None => Default::default(),
   };
 

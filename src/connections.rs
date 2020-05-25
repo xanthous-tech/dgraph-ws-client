@@ -1,10 +1,15 @@
 use std::sync::Arc;
+use std::time::Duration;
+use std::sync::atomic::{AtomicU32, Ordering};
 
-use tungstenite::{Message};
+use tungstenite::{Message, Error};
+use tokio_tungstenite::WebSocketStream;
+use futures_util::future::{FutureExt, TryFutureExt};
 use futures_util::{SinkExt, StreamExt};
+use futures_util::stream::SplitSink;
 use log::{info, debug, error};
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
+use tokio::sync::{oneshot, Mutex};
 use dgraph_tonic::{Query, Mutate};
 
 use crate::models::{ResponsePayload};
@@ -27,7 +32,16 @@ pub async fn accept_query_txn_connection<Q>(stream: TcpStream, txn_arc_mutex: Ar
 
   info!("New WebSocket connection: {}", addr);
 
-  let (mut sender, mut receiver) = ws_stream.split();
+  let (sender, mut receiver) = ws_stream.split();
+
+  let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
+
+  let counter = Arc::new(AtomicU32::new(0));
+  let prev_count = Arc::new(AtomicU32::new(0));
+
+  let (shutdown_hook, shutdown) = oneshot::channel::<()>();
+  let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
+  tokio::spawn(futures_util::future::select(auto_close_connection(sender_arc_mutex.clone(), counter.clone(), prev_count.clone()).boxed(), shutdown.map_err(drop)));
 
   while let Some(message) = receiver.next().await {
     // TODO: better error message by capturing the receive error
@@ -41,16 +55,22 @@ pub async fn accept_query_txn_connection<Q>(stream: TcpStream, txn_arc_mutex: Ar
           uids_map: None,
         };
 
-        sender.send(Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await
+        send_message(sender_arc_mutex.clone(), Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await
       },
       Ok(m) => match m {
-        Message::Ping(ping) => { sender.send(Message::Pong(ping)).await },
+        Message::Ping(ping) => {
+          send_message(sender_arc_mutex.clone(), Message::Pong(ping)).await
+        },
         Message::Pong(_) => Ok(()),
-        Message::Close(_) => Ok(()),
+        Message::Close(_) => {
+          kill_task(shutdown_hook_arc_mutex.clone()).await;
+          break;
+        },
         Message::Text(t) => {
+          increment_counter(counter.clone());
           let response = process_query_txn_request(txn_arc_mutex.clone(), t).await;
           match response {
-            Ok(payload) => sender.send(Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await,
+            Ok(payload) => send_message(sender_arc_mutex.clone(), Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await,
             Err(err) => {
               let payload = ResponsePayload {
                 error: Some(format!("Txn Error: {:?}", err)),
@@ -59,13 +79,13 @@ pub async fn accept_query_txn_connection<Q>(stream: TcpStream, txn_arc_mutex: Ar
                 uids_map: None,
               };
 
-              sender.send(Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await
+              send_message(sender_arc_mutex.clone(), Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await
             }
           }
         },
         Message::Binary(b) => {
           // TODO: process binary data as needed
-          sender.send(Message::Binary(b)).await
+          send_message(sender_arc_mutex.clone(), Message::Binary(b)).await
         },
       },
     };
@@ -84,7 +104,16 @@ pub async fn accept_mutate_txn_connection<M>(stream: TcpStream, txn_arc_mutex: A
 
   info!("New WebSocket connection: {}", addr);
 
-  let (mut sender, mut receiver) = ws_stream.split();
+  let (sender, mut receiver) = ws_stream.split();
+
+  let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
+
+  let counter = Arc::new(AtomicU32::new(0));
+  let prev_count = Arc::new(AtomicU32::new(0));
+
+  let (shutdown_hook, shutdown) = oneshot::channel::<()>();
+  let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
+  tokio::spawn(futures_util::future::select(auto_close_connection(sender_arc_mutex.clone(), counter.clone(), prev_count.clone()).boxed(), shutdown.map_err(drop)));
 
   while let Some(message) = receiver.next().await {
     // TODO: better error message by capturing the receive error
@@ -94,7 +123,7 @@ pub async fn accept_mutate_txn_connection<M>(stream: TcpStream, txn_arc_mutex: A
         debug!("discarding txn on error");
         let response = discard_txn(txn_arc_mutex.clone()).await;
         match response {
-          Ok(payload) => sender.send(Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await,
+          Ok(payload) => send_message(sender_arc_mutex.clone(), Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await,
           Err(err) => {
             let payload = ResponsePayload {
               error: Some(format!("Txn Error: {:?}", err)),
@@ -103,18 +132,20 @@ pub async fn accept_mutate_txn_connection<M>(stream: TcpStream, txn_arc_mutex: A
               uids_map: None,
             };
 
-            sender.send(Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await
+            send_message(sender_arc_mutex.clone(), Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await
           }
         }
       },
       Ok(m) => match m {
-        Message::Ping(ping) => { sender.send(Message::Pong(ping)).await },
+        Message::Ping(ping) => {
+          send_message(sender_arc_mutex.clone(), Message::Pong(ping)).await
+        },
         Message::Pong(_) => { Ok(()) },
         Message::Close(_) => {
           debug!("discarding txn on close");
           let response = discard_txn(txn_arc_mutex.clone()).await;
-          match response {
-            Ok(payload) => sender.send(Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await,
+          let _ = match response {
+            Ok(payload) => send_message(sender_arc_mutex.clone(), Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await,
             Err(err) => {
               let payload = ResponsePayload {
                 error: Some(format!("Txn Error: {:?}", err)),
@@ -123,14 +154,18 @@ pub async fn accept_mutate_txn_connection<M>(stream: TcpStream, txn_arc_mutex: A
                 uids_map: None,
               };
 
-              sender.send(Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await
+              send_message(sender_arc_mutex.clone(), Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await
             }
-          }
+          };
+
+          kill_task(shutdown_hook_arc_mutex.clone()).await;
+          break;
         },
         Message::Text(t) => {
+          increment_counter(counter.clone());
           let response = process_mutate_txn_request(txn_arc_mutex.clone(), t).await;
           match response {
-            Ok(payload) => sender.send(Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await,
+            Ok(payload) => send_message(sender_arc_mutex.clone(), Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await,
             Err(err) => {
               let payload = ResponsePayload {
                 error: Some(format!("Txn Error: {:?}", err)),
@@ -139,15 +174,74 @@ pub async fn accept_mutate_txn_connection<M>(stream: TcpStream, txn_arc_mutex: A
                 uids_map: None,
               };
 
-              sender.send(Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await
+              send_message(sender_arc_mutex.clone(), Message::Text(serde_json::to_string(&payload).unwrap_or_default())).await
             }
           }
         },
         Message::Binary(b) => {
           // TODO: process binary data as needed
-          sender.send(Message::Binary(b)).await
+          send_message(sender_arc_mutex.clone(), Message::Binary(b)).await
         },
       },
     };
   }
+}
+
+async fn send_message(sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<TcpStream>, Message>>>>, msg: Message) -> Result<(), Error> {
+  let mut sender_guard = sender_arc_mutex.lock().await;
+  let sender = sender_guard.as_mut();
+  match sender {
+    Some(s) => s.send(msg).await,
+    None => Ok(()),
+  }
+}
+
+async fn auto_close_connection(
+  sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<TcpStream>, Message>>>>,
+  counter: Arc<AtomicU32>,
+  prev_count: Arc<AtomicU32>,
+) -> () {
+  let mut interval = tokio::time::interval(Duration::from_millis(5000));
+
+  let same_count = Arc::new(AtomicU32::new(0));
+
+  while let Some(_) = interval.next().await {
+    let count = counter.load(Ordering::Relaxed);
+    let prev = prev_count.load(Ordering::Relaxed);
+    if count != prev {
+      debug!("txn is alive. Count - {}, Prev - {}", count, prev);
+      prev_count.store(count, Ordering::Relaxed);
+    } else {
+      let sc = same_count.fetch_add(1, Ordering::Relaxed);
+      debug!("txn is not alive. Same Count - {}", sc);
+      if sc >= 3 {
+        info!("closing connection");
+        let result = send_message(sender_arc_mutex.clone(), Message::Close(None)).await;
+        match result {
+          Ok(_) => (),
+          Err(e) => error!("Error sending close message {:?}", e),
+        };
+        break;
+      }
+    }
+  };
+}
+
+async fn kill_task(shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>>>>) {
+  debug!("killing auto disconnect task");
+
+  let mut shutdown_hook_guard = shutdown_hook_arc_mutex.lock().await;
+
+  let shutdown_hook = shutdown_hook_guard.take();
+
+  let _ = match shutdown_hook {
+    Some(s) => s.send(()),
+    None => Ok(()),
+  };
+
+  ()
+}
+
+fn increment_counter(counter: Arc<AtomicU32>) {
+  counter.fetch_add(1, Ordering::Relaxed);
 }
