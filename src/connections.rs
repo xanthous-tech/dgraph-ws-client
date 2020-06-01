@@ -201,7 +201,7 @@ async fn auto_close_connection(
   counter: Arc<AtomicU32>,
   prev_count: Arc<AtomicU32>,
 ) -> () {
-  let mut interval = tokio::time::interval(Duration::from_millis(5000));
+  let mut interval = tokio::time::interval(Duration::from_millis(10000));
 
   let same_count = Arc::new(AtomicU32::new(0));
 
@@ -214,7 +214,7 @@ async fn auto_close_connection(
     } else {
       let sc = same_count.fetch_add(1, Ordering::Relaxed);
       debug!("txn is not alive. Same Count - {}", sc);
-      if sc >= 3 {
+      if sc >= 6 {
         info!("closing connection");
         let result = send_message(sender_arc_mutex.clone(), Message::Close(None)).await;
         match result {
