@@ -35,9 +35,9 @@ async fn main() {
 
   let client = Arc::new(Client::new(address_vec).expect("dgraph client"));
 
-  let handle1 = tokio::spawn(create_read_only_txn_channel("127.0.0.1:9001", client.clone()));
-  let handle2 = tokio::spawn(create_best_effort_txn_channel("127.0.0.1:9002", client.clone()));
-  let handle3 = tokio::spawn(create_mutated_txn_channel("127.0.0.1:9003", client.clone()));
+  let handle1 = tokio::spawn(create_read_only_txn_channel("0.0.0.0:9001", client.clone()));
+  let handle2 = tokio::spawn(create_best_effort_txn_channel("0.0.0.0:9002", client.clone()));
+  let handle3 = tokio::spawn(create_mutated_txn_channel("0.0.0.0:9003", client.clone()));
 
   let _responses = tokio::try_join!(handle1, handle2, handle3);
 }
