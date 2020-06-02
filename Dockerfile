@@ -21,6 +21,7 @@ RUN cargo build --release
 FROM debian:buster-slim
 
 ENV RUST_LOG=info
+ENV DGRAPH_ALPHAS=http://localhost:9080
 
 RUN apt-get update && apt-get install libssl1.1 -y
 
