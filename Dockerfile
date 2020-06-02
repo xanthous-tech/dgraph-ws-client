@@ -6,42 +6,26 @@ FROM rust:1.43.1 as cargo-build
 
 RUN apt-get update
 
-RUN apt-get install musl-tools libssl-dev -y
-
-RUN rustup target add x86_64-unknown-linux-musl
+RUN apt-get install libssl-dev pkg-config -y
 
 WORKDIR /usr/src/dgraph-ws-client
 
-COPY Cargo.toml Cargo.toml
-
-RUN mkdir src/
-
-RUN echo "fn main() {println!(\"if you see this, the build broke\")}" > src/main.rs
-
-RUN RUSTFLAGS=-Clinker=musl-gcc cargo build --release --target=x86_64-unknown-linux-musl
-
-RUN rm -f target/x86_64-unknown-linux-musl/release/deps/dgraph-ws-client*
-
 COPY . .
 
-RUN RUSTFLAGS=-Clinker=musl-gcc cargo build --release --target=x86_64-unknown-linux-musl
+RUN cargo build --release
 
 # ------------------------------------------------------------------------------
 # Final Stage
 # ------------------------------------------------------------------------------
 
-FROM alpine:latest
+FROM debian:buster-slim
 
-RUN addgroup -g 1000 dgraphws
+ENV RUST_LOG=info
 
-RUN adduser -D -s /bin/sh -u 1000 -G dgraphws dgraphws
+RUN apt-get update && apt-get install libssl1.1 -y
 
-WORKDIR /home/dgraphws/bin/
+WORKDIR /opt/dgraph-ws-client
 
-COPY --from=cargo-build /usr/src/dgraph-ws-client/target/x86_64-unknown-linux-musl/release/dgraph-ws-client .
-
-RUN chown dgraphws:dgraphws dgraph-ws-client
-
-USER dgraphws
+COPY --from=cargo-build /usr/src/dgraph-ws-client/target/release/dgraph-ws-client .
 
 CMD ["./dgraph-ws-client"]
