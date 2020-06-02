@@ -23,6 +23,10 @@ FROM debian:buster-slim
 ENV RUST_LOG=info
 ENV DGRAPH_ALPHAS=http://localhost:9080
 
+EXPOSE 9001
+EXPOSE 9002
+EXPOSE 9003
+
 RUN apt-get update && apt-get install libssl1.1 -y
 
 WORKDIR /opt/dgraph-ws-client
