@@ -3,6 +3,7 @@ extern crate anyhow;
 
 extern crate serde_json;
 
+mod server;
 mod models;
 mod channels;
 mod connections;
@@ -10,15 +11,10 @@ mod txn;
 
 use std::env;
 use std::sync::Arc;
+use std::net::SocketAddr;
 
 use log::info;
 use dgraph_tonic::Client;
-
-use channels::{
-  create_read_only_txn_channel,
-  create_best_effort_txn_channel,
-  create_mutated_txn_channel,
-};
 
 #[tokio::main]
 async fn main() {
@@ -33,11 +29,12 @@ async fn main() {
 
   info!("creating client against dGraph servers {:?}", address_vec);
 
-  let client = Arc::new(Client::new(address_vec).expect("dgraph client"));
+  let client_arc = Arc::new(Client::new(address_vec).expect("dgraph client"));
 
-  let handle1 = tokio::spawn(create_read_only_txn_channel("0.0.0.0:9001", client.clone()));
-  let handle2 = tokio::spawn(create_best_effort_txn_channel("0.0.0.0:9002", client.clone()));
-  let handle3 = tokio::spawn(create_mutated_txn_channel("0.0.0.0:9003", client.clone()));
+  let addr_str = "0.0.0.0:9000";
+  let addr: SocketAddr = addr_str.parse().unwrap_or(SocketAddr::from(([0, 0, 0, 0], 9000)));
 
-  let _responses = tokio::try_join!(handle1, handle2, handle3);
+  info!("server listening at {}", addr_str);
+
+  server::build(addr, client_arc.clone()).await
 }

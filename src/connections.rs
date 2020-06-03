@@ -4,9 +4,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use tungstenite::{Message, Error};
 use tokio_tungstenite::WebSocketStream;
-use futures_util::future::{FutureExt, TryFutureExt};
-use futures_util::{SinkExt, StreamExt};
-use futures_util::stream::SplitSink;
+use futures::future::{select, FutureExt, TryFutureExt};
+use futures::{SinkExt, StreamExt};
+use futures::stream::SplitSink;
 use log::{info, debug, error};
 use tokio::net::TcpStream;
 use tokio::sync::{oneshot, Mutex};
@@ -41,7 +41,7 @@ pub async fn accept_query_txn_connection<Q>(stream: TcpStream, txn_arc_mutex: Ar
 
   let (shutdown_hook, shutdown) = oneshot::channel::<()>();
   let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
-  tokio::spawn(futures_util::future::select(auto_close_connection(sender_arc_mutex.clone(), counter.clone(), prev_count.clone()).boxed(), shutdown.map_err(drop)));
+  tokio::spawn(select(auto_close_connection(sender_arc_mutex.clone(), counter.clone(), prev_count.clone()).boxed(), shutdown.map_err(drop)));
 
   while let Some(message) = receiver.next().await {
     // TODO: better error message by capturing the receive error
@@ -113,7 +113,7 @@ pub async fn accept_mutate_txn_connection<M>(stream: TcpStream, txn_arc_mutex: A
 
   let (shutdown_hook, shutdown) = oneshot::channel::<()>();
   let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
-  tokio::spawn(futures_util::future::select(auto_close_connection(sender_arc_mutex.clone(), counter.clone(), prev_count.clone()).boxed(), shutdown.map_err(drop)));
+  tokio::spawn(select(auto_close_connection(sender_arc_mutex.clone(), counter.clone(), prev_count.clone()).boxed(), shutdown.map_err(drop)));
 
   while let Some(message) = receiver.next().await {
     // TODO: better error message by capturing the receive error
