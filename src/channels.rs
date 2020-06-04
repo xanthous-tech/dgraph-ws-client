@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::{info, debug};
+use log::debug;
 use hyper::upgrade::Upgraded;
 use tokio::sync::Mutex;
 use dgraph_tonic::Client;

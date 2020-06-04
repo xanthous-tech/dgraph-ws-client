@@ -1,11 +1,9 @@
 use std::sync::Arc;
-use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::collections::HashMap;
 
 use log::{info, error};
-use futures::future::TryFutureExt;
-use hyper::{Body, Request, Response, Server, Method, StatusCode, HeaderMap};
+use hyper::{Body, Request, Response, Server, Method, StatusCode};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::server::conn::AddrStream;
 use hyper::header::{UPGRADE, HeaderValue, CONNECTION};
