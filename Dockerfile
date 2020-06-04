@@ -22,10 +22,9 @@ FROM debian:buster-slim
 
 ENV RUST_LOG=info
 ENV DGRAPH_ALPHAS=http://localhost:9080
+ENV LISTEN_ADDRESS=0.0.0.0:9000
 
-EXPOSE 9001
-EXPOSE 9002
-EXPOSE 9003
+EXPOSE 9000
 
 RUN apt-get update && apt-get install libssl1.1 -y
 
