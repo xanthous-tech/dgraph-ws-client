@@ -8,7 +8,7 @@ use futures::future::{select, FutureExt, TryFutureExt};
 use futures::{SinkExt, StreamExt};
 use futures::stream::SplitSink;
 use log::{info, debug, error};
-use tokio::net::TcpStream;
+use hyper::upgrade::Upgraded;
 use tokio::sync::{oneshot, Mutex};
 use dgraph_tonic::{Query, Mutate};
 
@@ -19,20 +19,8 @@ use crate::txn::{
   process_mutate_txn_request,
 };
 
-pub async fn accept_query_txn_connection<Q>(stream: TcpStream, txn_arc_mutex: Arc<Mutex<Option<Q>>>) where Q: Query {
-  let addr = stream
-    .peer_addr()
-    .expect("connected streams should have a peer address");
-
-  info!("Peer address {} requesting query txn", addr);
-
-  let ws_stream = tokio_tungstenite::accept_async(stream)
-    .await
-    .expect("Error during the websocket handshake occurred");
-
-  info!("New WebSocket connection: {}", addr);
-
-  let (sender, mut receiver) = ws_stream.split();
+pub async fn accept_query_txn_connection<Q>(stream: WebSocketStream<Upgraded>, txn_arc_mutex: Arc<Mutex<Option<Q>>>) where Q: Query {
+  let (sender, mut receiver) = stream.split();
 
   let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
 
@@ -92,19 +80,8 @@ pub async fn accept_query_txn_connection<Q>(stream: TcpStream, txn_arc_mutex: Ar
   }
 }
 
-pub async fn accept_mutate_txn_connection<M>(stream: TcpStream, txn_arc_mutex: Arc<Mutex<Option<M>>>) where M: Mutate {
-  let addr = stream
-    .peer_addr()
-    .expect("connected streams should have a peer address");
-  info!("Peer address: {}", addr);
-
-  let ws_stream = tokio_tungstenite::accept_async(stream)
-    .await
-    .expect("Error during the websocket handshake occurred");
-
-  info!("New WebSocket connection: {}", addr);
-
-  let (sender, mut receiver) = ws_stream.split();
+pub async fn accept_mutate_txn_connection<M>(stream: WebSocketStream<Upgraded>, txn_arc_mutex: Arc<Mutex<Option<M>>>) where M: Mutate {
+  let (sender, mut receiver) = stream.split();
 
   let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
 
@@ -187,7 +164,7 @@ pub async fn accept_mutate_txn_connection<M>(stream: TcpStream, txn_arc_mutex: A
   }
 }
 
-async fn send_message(sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<TcpStream>, Message>>>>, msg: Message) -> Result<(), Error> {
+async fn send_message(sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>, msg: Message) -> Result<(), Error> {
   let mut sender_guard = sender_arc_mutex.lock().await;
   let sender = sender_guard.as_mut();
   match sender {
@@ -197,7 +174,7 @@ async fn send_message(sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStre
 }
 
 async fn auto_close_connection(
-  sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<TcpStream>, Message>>>>,
+  sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
   counter: Arc<AtomicU32>,
   prev_count: Arc<AtomicU32>,
 ) -> () {

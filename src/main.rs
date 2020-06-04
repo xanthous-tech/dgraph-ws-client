@@ -31,10 +31,13 @@ async fn main() {
 
   let client_arc = Arc::new(Client::new(address_vec).expect("dgraph client"));
 
-  let addr_str = "0.0.0.0:9000";
+  let addr_str = match env::var("LISTEN_ADDRESS") {
+    Ok(val) => val.clone(),
+    Err(_) => "0.0.0.0:9000".to_string(),
+  };
   let addr: SocketAddr = addr_str.parse().unwrap_or(SocketAddr::from(([0, 0, 0, 0], 9000)));
 
-  info!("server listening at {}", addr_str);
+  info!("server listening at {:}", addr);
 
   server::build(addr, client_arc.clone()).await
 }
