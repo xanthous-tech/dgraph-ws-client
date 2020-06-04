@@ -52,6 +52,7 @@ pub async fn build(addr: SocketAddr, client_arc: Arc<Client>) {
                 return Ok(res);
               }
 
+              // websocket handshake
               let sec_websocket_key = String::from_utf8(req.headers()["Sec-WebSocket-Key"].as_bytes().to_vec()).unwrap_or_default();
               let websocket_key = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11".to_string();
               let combined = format!("{}{}", sec_websocket_key, websocket_key);
@@ -65,6 +66,7 @@ pub async fn build(addr: SocketAddr, client_arc: Arc<Client>) {
               res.headers_mut()
                 .insert("Sec-WebSocket-Accept", HeaderValue::from_bytes(sec_websocket_accept.as_bytes()).unwrap_or_else(|_| HeaderValue::from_static("")));
 
+              // websocket upgrade
               tokio::task::spawn(async move {
                 let query = req.uri().query().unwrap_or_default().to_string();
                 let query_params = querystring::querify(query.as_str());
@@ -109,10 +111,4 @@ pub async fn build(addr: SocketAddr, client_arc: Arc<Client>) {
   if let Err(e) = server.await {
     error!("server error: {}", e);
   }
-
-  // let handle1 = tokio::spawn(create_read_only_txn_channel("0.0.0.0:9001", client_arc.clone()));
-  // let handle2 = tokio::spawn(create_best_effort_txn_channel("0.0.0.0:9002", client_arc.clone()));
-  // let handle3 = tokio::spawn(create_mutated_txn_channel("0.0.0.0:9003", client_arc.clone()));
-
-  // let _responses = tokio::try_join!(handle1, handle2, handle3);
 }
