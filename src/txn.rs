@@ -10,7 +10,7 @@ use dgraph_tonic::{Mutate, Mutation, Query};
 
 use crate::models::{MutationPayload, QueryPayload, RequestPayload, ResponsePayload};
 
-pub async fn discard_txn<M>(txn_arc_mutex: Arc<Mutex<Option<M>>>) -> Result<ResponsePayload>
+pub async fn discard_txn<M>(request_id: Option<String>, txn_arc_mutex: Arc<Mutex<Option<M>>>) -> Result<ResponsePayload>
 where
     M: Mutate,
 {
@@ -24,6 +24,7 @@ where
                 Ok(_) => {
                     debug!("txn discarded");
                     Ok(ResponsePayload {
+                        id: request_id,
                         error: None,
                         message: Some("txn discarded".to_string()),
                         json: None,
@@ -39,6 +40,7 @@ where
         None => {
             debug!("txn is empty");
             Ok(ResponsePayload {
+                id: request_id,
                 error: None,
                 message: Some("txn is empty".to_string()),
                 json: None,
@@ -50,93 +52,73 @@ where
 
 pub async fn process_query_txn_request<Q>(
     txn_arc_mutex: Arc<Mutex<Option<Q>>>,
-    request_string: String,
+    request: RequestPayload,
 ) -> Result<ResponsePayload>
 where
     Q: Query,
 {
-    let parsed: Result<RequestPayload, _> = serde_json::from_str(request_string.as_str());
-
-    match parsed {
-        Err(e) => {
-            error!("parse request error {:?}", e);
-            Err(anyhow!("parse request error {:?}", e))
+    debug!("incoming request {:?}", request);
+    match request.mutate {
+        Some(_) => {
+            error!("invalid request {:?}", request);
+            Err(anyhow!("invalid request {:?}", request))
         }
-        Ok(request) => {
-            debug!("incoming request {:?}", request);
-            match request.mutate {
-                Some(_) => {
+        None => match request.commit {
+            Some(_) => {
+                error!("invalid request {:?}", request);
+                Err(anyhow!("invalid request {:?}", request))
+            }
+            None => match request.query {
+                None => {
                     error!("invalid request {:?}", request);
                     Err(anyhow!("invalid request {:?}", request))
                 }
-                None => match request.commit {
-                    Some(_) => {
-                        error!("invalid request {:?}", request);
-                        Err(anyhow!("invalid request {:?}", request))
-                    }
-                    None => match request.query {
-                        None => {
-                            error!("invalid request {:?}", request);
-                            Err(anyhow!("invalid request {:?}", request))
-                        }
-                        Some(query) => query_with_vars(txn_arc_mutex.clone(), query.clone()).await,
-                    },
-                },
-            }
-        }
+                Some(query) => query_with_vars(request.id, txn_arc_mutex.clone(), query.clone()).await,
+            },
+        },
     }
 }
 
 pub async fn process_mutate_txn_request<M>(
     txn_arc_mutex: Arc<Mutex<Option<M>>>,
-    request_string: String,
+    request: RequestPayload,
 ) -> Result<ResponsePayload>
 where
     M: Mutate,
 {
-    let parsed: Result<RequestPayload, _> = serde_json::from_str(request_string.as_str());
-
-    match parsed {
-        Err(e) => {
-            error!("parse request error {:?}", e);
-            Err(anyhow!("parse request error {:?}", e))
-        }
-        Ok(request) => {
-            debug!("incoming request {:?}", request);
-            match request.query {
-                Some(query) => match request.mutate {
-                    Some(mu) => {
-                        let mutation = generate_mutation(mu, request.commit);
-                        upsert(txn_arc_mutex.clone(), query.clone(), mutation).await
-                    }
-                    None => query_with_vars(txn_arc_mutex.clone(), query.clone()).await,
-                },
-                None => match request.mutate {
-                    Some(mu) => {
-                        let mutation = generate_mutation(mu, request.commit);
-                        mutate(txn_arc_mutex.clone(), mutation).await
-                    }
-                    None => match request.commit {
-                        Some(c) => {
-                            if c {
-                                commit_txn(txn_arc_mutex).await
-                            } else {
-                                error!("invalid request {:?}", request);
-                                Err(anyhow!("invalid request {:?}", request))
-                            }
-                        }
-                        None => {
-                            error!("invalid request {:?}", request);
-                            Err(anyhow!("invalid request {:?}", request))
-                        }
-                    },
-                },
+    debug!("incoming request {:?}", request);
+    match request.query {
+        Some(query) => match request.mutate {
+            Some(mu) => {
+                let mutation = generate_mutation(mu, request.commit);
+                upsert(request.id, txn_arc_mutex.clone(), query.clone(), mutation).await
             }
-        }
+            None => query_with_vars(request.id, txn_arc_mutex.clone(), query.clone()).await,
+        },
+        None => match request.mutate {
+            Some(mu) => {
+                let mutation = generate_mutation(mu, request.commit);
+                mutate(request.id, txn_arc_mutex.clone(), mutation).await
+            }
+            None => match request.commit {
+                Some(c) => {
+                    if c {
+                        commit_txn(request.id, txn_arc_mutex).await
+                    } else {
+                        error!("invalid request {:?}", request);
+                        Err(anyhow!("invalid request {:?}", request))
+                    }
+                }
+                None => {
+                    error!("invalid request {:?}", request);
+                    Err(anyhow!("invalid request {:?}", request))
+                }
+            },
+        },
     }
 }
 
-async fn commit_txn<M>(txn_arc_mutex: Arc<Mutex<Option<M>>>) -> Result<ResponsePayload>
+async fn commit_txn<M>(request_id: Option<String>, txn_arc_mutex: Arc<Mutex<Option<M>>>) -> Result<ResponsePayload>
 where
     M: Mutate,
 {
@@ -150,6 +132,7 @@ where
                 Ok(_) => {
                     debug!("txn committed");
                     Ok(ResponsePayload {
+                        id: request_id,
                         error: None,
                         message: Some("txn committed".to_string()),
                         json: None,
@@ -165,6 +148,7 @@ where
         None => {
             debug!("txn is empty");
             Ok(ResponsePayload {
+                id: request_id,
                 error: None,
                 message: Some("txn is empty".to_string()),
                 json: None,
@@ -175,6 +159,7 @@ where
 }
 
 async fn query_with_vars<Q>(
+    request_id: Option<String>,
     txn_arc_mutex: Arc<Mutex<Option<Q>>>,
     query: QueryPayload,
 ) -> Result<ResponsePayload>
@@ -194,6 +179,7 @@ where
             let response = t.query_with_vars(query.q, vars).await;
             match response {
                 Ok(r) => Ok(ResponsePayload {
+                    id: request_id,
                     error: None,
                     message: None,
                     json: Some(
@@ -217,6 +203,7 @@ where
 }
 
 async fn upsert<M>(
+    request_id: Option<String>,
     txn_arc_mutex: Arc<Mutex<Option<M>>>,
     query: QueryPayload,
     mutation: Mutation,
@@ -241,6 +228,7 @@ where
                     .await;
                 match response {
                     Ok(r) => Ok(ResponsePayload {
+                        id: request_id,
                         error: None,
                         message: None,
                         json: Some(
@@ -269,6 +257,7 @@ where
                 let response = t.upsert_with_vars(query.q, vars, mutation).await;
                 match response {
                     Ok(r) => Ok(ResponsePayload {
+                        id: request_id,
                         error: None,
                         message: None,
                         json: Some(
@@ -293,6 +282,7 @@ where
 }
 
 async fn mutate<M>(
+    request_id: Option<String>,
     txn_arc_mutex: Arc<Mutex<Option<M>>>,
     mutation: Mutation,
 ) -> Result<ResponsePayload>
@@ -309,6 +299,7 @@ where
                 let response = t.mutate_and_commit_now(mutation).await;
                 match response {
                     Ok(r) => Ok(ResponsePayload {
+                        id: request_id,
                         error: None,
                         message: None,
                         json: Some(
@@ -337,6 +328,7 @@ where
                 let response = t.mutate(mutation).await;
                 match response {
                     Ok(r) => Ok(ResponsePayload {
+                        id: request_id,
                         error: None,
                         message: None,
                         json: Some(

@@ -13,7 +13,7 @@ use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::WebSocketStream;
 use tungstenite::{Error, Message};
 
-use crate::models::ResponsePayload;
+use crate::models::{RequestPayload, ResponsePayload};
 use crate::txn::{discard_txn, process_mutate_txn_request, process_query_txn_request};
 
 pub async fn accept_query_txn_connection<Q>(
@@ -47,6 +47,7 @@ pub async fn accept_query_txn_connection<Q>(
             Err(receive_error) => {
                 error!("{:?}", receive_error);
                 let payload = ResponsePayload {
+                    id: None,
                     error: Some(format!("Message Receive Error: {:?}", receive_error)),
                     message: None,
                     json: None,
@@ -72,18 +73,12 @@ pub async fn accept_query_txn_connection<Q>(
                 }
                 Message::Text(t) => {
                     increment_counter(counter.clone());
-                    let response = process_query_txn_request(txn_arc_mutex.clone(), t).await;
-                    match response {
-                        Ok(payload) => {
-                            send_message(
-                                sender_arc_mutex.clone(),
-                                Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
-                            )
-                            .await
-                        }
-                        Err(err) => {
+                    let parsed: Result<RequestPayload, _> = serde_json::from_str(t.as_str());
+                    match parsed {
+                        Err(e) => {
                             let payload = ResponsePayload {
-                                error: Some(format!("Txn Error: {:?}", err)),
+                                id: None,
+                                error: Some(format!("Parse Error: {:?}", e)),
                                 message: None,
                                 json: None,
                                 uids_map: None,
@@ -94,6 +89,33 @@ pub async fn accept_query_txn_connection<Q>(
                                 Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
                             )
                             .await
+                        },
+                        Ok(request) => {
+                            let response = process_query_txn_request(txn_arc_mutex.clone(), request.clone()).await;
+                            match response {
+                                Ok(payload) => {
+                                    send_message(
+                                        sender_arc_mutex.clone(),
+                                        Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                                    )
+                                    .await
+                                }
+                                Err(err) => {
+                                    let payload = ResponsePayload {
+                                        id: request.id,
+                                        error: Some(format!("Txn Error: {:?}", err)),
+                                        message: None,
+                                        json: None,
+                                        uids_map: None,
+                                    };
+
+                                    send_message(
+                                        sender_arc_mutex.clone(),
+                                        Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                                    )
+                                    .await
+                                }
+                            }
                         }
                     }
                 }
@@ -137,7 +159,7 @@ pub async fn accept_mutate_txn_connection<M>(
             Err(receive_error) => {
                 error!("{:?}", receive_error);
                 debug!("discarding txn on error");
-                let response = discard_txn(txn_arc_mutex.clone()).await;
+                let response = discard_txn(None, txn_arc_mutex.clone()).await;
                 match response {
                     Ok(payload) => {
                         send_message(
@@ -148,6 +170,7 @@ pub async fn accept_mutate_txn_connection<M>(
                     }
                     Err(err) => {
                         let payload = ResponsePayload {
+                            id: None,
                             error: Some(format!("Txn Error: {:?}", err)),
                             message: None,
                             json: None,
@@ -171,7 +194,7 @@ pub async fn accept_mutate_txn_connection<M>(
                 Message::Pong(_) => Ok(()),
                 Message::Close(_) => {
                     debug!("discarding txn on close");
-                    let response = discard_txn(txn_arc_mutex.clone()).await;
+                    let response = discard_txn(None, txn_arc_mutex.clone()).await;
                     let _ = match response {
                         Ok(payload) => {
                             send_message(
@@ -182,6 +205,7 @@ pub async fn accept_mutate_txn_connection<M>(
                         }
                         Err(err) => {
                             let payload = ResponsePayload {
+                                id: None,
                                 error: Some(format!("Txn Error: {:?}", err)),
                                 message: None,
                                 json: None,
@@ -201,18 +225,12 @@ pub async fn accept_mutate_txn_connection<M>(
                 }
                 Message::Text(t) => {
                     increment_counter(counter.clone());
-                    let response = process_mutate_txn_request(txn_arc_mutex.clone(), t).await;
-                    match response {
-                        Ok(payload) => {
-                            send_message(
-                                sender_arc_mutex.clone(),
-                                Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
-                            )
-                            .await
-                        }
-                        Err(err) => {
+                    let parsed: Result<RequestPayload, _> = serde_json::from_str(t.as_str());
+                    match parsed {
+                        Err(e) => {
                             let payload = ResponsePayload {
-                                error: Some(format!("Txn Error: {:?}", err)),
+                                id: None,
+                                error: Some(format!("Parse Error: {:?}", e)),
                                 message: None,
                                 json: None,
                                 uids_map: None,
@@ -223,6 +241,33 @@ pub async fn accept_mutate_txn_connection<M>(
                                 Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
                             )
                             .await
+                        },
+                        Ok(request) => {
+                            let response = process_mutate_txn_request(txn_arc_mutex.clone(), request.clone()).await;
+                            match response {
+                                Ok(payload) => {
+                                    send_message(
+                                        sender_arc_mutex.clone(),
+                                        Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                                    )
+                                    .await
+                                }
+                                Err(err) => {
+                                    let payload = ResponsePayload {
+                                        id: request.id,
+                                        error: Some(format!("Txn Error: {:?}", err)),
+                                        message: None,
+                                        json: None,
+                                        uids_map: None,
+                                    };
+
+                                    send_message(
+                                        sender_arc_mutex.clone(),
+                                        Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                                    )
+                                    .await
+                                }
+                            }
                         }
                     }
                 }

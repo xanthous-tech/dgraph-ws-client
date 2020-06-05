@@ -23,6 +23,7 @@ pub struct MutationPayload {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RequestPayload {
+    pub id: Option<String>,
     pub query: Option<QueryPayload>,
     pub mutate: Option<MutationPayload>,
     pub commit: Option<bool>,
@@ -30,6 +31,8 @@ pub struct RequestPayload {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ResponsePayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
