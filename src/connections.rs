@@ -60,6 +60,7 @@ pub async fn accept_query_txn_connection<Q>(
             }
             Ok(m) => match m {
                 Message::Ping(ping) => {
+                    increment_counter(counter.clone());
                     send_message(sender_arc_mutex.clone(), Message::Pong(ping)).await
                 }
                 Message::Pong(_) => Ok(()),
@@ -161,6 +162,7 @@ pub async fn accept_mutate_txn_connection<M>(
             }
             Ok(m) => match m {
                 Message::Ping(ping) => {
+                    increment_counter(counter.clone());
                     send_message(sender_arc_mutex.clone(), Message::Pong(ping)).await
                 }
                 Message::Pong(_) => Ok(()),
