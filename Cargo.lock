@@ -99,6 +99,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
 
 [[package]]
+name = "base64"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53d1ccbaf7d9ec9537465a97bf19edc1a4e158ecb49fc16178202238c569cc42"
+
+[[package]]
 name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -203,11 +209,15 @@ name = "dgraph-ws-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.12.1",
  "dgraph-tonic",
  "dotenv",
  "env_logger",
- "futures-util",
+ "futures",
+ "hyper",
  "log",
+ "querystring",
+ "ring",
  "serde",
  "serde_derive",
  "serde_json",
@@ -938,6 +948,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "querystring"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9318ead08c799aad12a55a3e78b82e0b6167271ffd1f627b758891282f739187"
+
+[[package]]
 name = "quick-error"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1063,7 +1079,7 @@ version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0d4a31f5d68413404705d6982529b0e11a9aacd4839d1d6222ee3b8cb4015e1"
 dependencies = [
- "base64",
+ "base64 0.11.0",
  "log",
  "ring",
  "sct",
@@ -1369,7 +1385,7 @@ checksum = "4afef9ce97ea39593992cf3fa00ff33b1ad5eb07665b31355df63a690e38c736"
 dependencies = [
  "async-stream",
  "async-trait",
- "base64",
+ "base64 0.11.0",
  "bytes",
  "futures-core",
  "futures-util",
@@ -1636,7 +1652,7 @@ version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfea31758bf674f990918962e8e5f07071a3161bd7c4138ed23e416e1ac4264e"
 dependencies = [
- "base64",
+ "base64 0.11.0",
  "byteorder",
  "bytes",
  "http",

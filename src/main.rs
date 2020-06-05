@@ -3,41 +3,43 @@ extern crate anyhow;
 
 extern crate serde_json;
 
-mod models;
 mod channels;
 mod connections;
+mod models;
+mod server;
 mod txn;
 
 use std::env;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
-use log::info;
 use dgraph_tonic::Client;
-
-use channels::{
-  create_read_only_txn_channel,
-  create_best_effort_txn_channel,
-  create_mutated_txn_channel,
-};
+use log::info;
 
 #[tokio::main]
 async fn main() {
-  let _ = env_logger::try_init();
+    let _ = env_logger::try_init();
 
-  let addresses = match env::var("DGRAPH_ALPHAS") {
-    Ok(val) => val.clone(),
-    Err(_) => "http://localhost:9080".to_string(),
-  };
+    let addresses = match env::var("DGRAPH_ALPHAS") {
+        Ok(val) => val.clone(),
+        Err(_) => "http://localhost:9080".to_string(),
+    };
 
-  let address_vec = addresses.split(",").collect::<Vec<&str>>();
+    let address_vec = addresses.split(",").collect::<Vec<&str>>();
 
-  info!("creating client against dGraph servers {:?}", address_vec);
+    info!("creating client against dGraph servers {:?}", address_vec);
 
-  let client = Arc::new(Client::new(address_vec).expect("dgraph client"));
+    let client_arc = Arc::new(Client::new(address_vec).expect("dgraph client"));
 
-  let handle1 = tokio::spawn(create_read_only_txn_channel("0.0.0.0:9001", client.clone()));
-  let handle2 = tokio::spawn(create_best_effort_txn_channel("0.0.0.0:9002", client.clone()));
-  let handle3 = tokio::spawn(create_mutated_txn_channel("0.0.0.0:9003", client.clone()));
+    let addr_str = match env::var("LISTEN_ADDRESS") {
+        Ok(val) => val.clone(),
+        Err(_) => "0.0.0.0:9000".to_string(),
+    };
+    let addr: SocketAddr = addr_str
+        .parse()
+        .unwrap_or(SocketAddr::from(([0, 0, 0, 0], 9000)));
 
-  let _responses = tokio::try_join!(handle1, handle2, handle3);
+    info!("server listening at {:}", addr);
+
+    server::build(addr, client_arc.clone()).await
 }
