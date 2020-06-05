@@ -89,14 +89,18 @@ pub async fn accept_query_txn_connection<Q>(
                                 Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
                             )
                             .await
-                        },
+                        }
                         Ok(request) => {
-                            let response = process_query_txn_request(txn_arc_mutex.clone(), request.clone()).await;
+                            let response =
+                                process_query_txn_request(txn_arc_mutex.clone(), request.clone())
+                                    .await;
                             match response {
                                 Ok(payload) => {
                                     send_message(
                                         sender_arc_mutex.clone(),
-                                        Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                                        Message::Text(
+                                            serde_json::to_string(&payload).unwrap_or_default(),
+                                        ),
                                     )
                                     .await
                                 }
@@ -111,7 +115,9 @@ pub async fn accept_query_txn_connection<Q>(
 
                                     send_message(
                                         sender_arc_mutex.clone(),
-                                        Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                                        Message::Text(
+                                            serde_json::to_string(&payload).unwrap_or_default(),
+                                        ),
                                     )
                                     .await
                                 }
@@ -241,14 +247,18 @@ pub async fn accept_mutate_txn_connection<M>(
                                 Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
                             )
                             .await
-                        },
+                        }
                         Ok(request) => {
-                            let response = process_mutate_txn_request(txn_arc_mutex.clone(), request.clone()).await;
+                            let response =
+                                process_mutate_txn_request(txn_arc_mutex.clone(), request.clone())
+                                    .await;
                             match response {
                                 Ok(payload) => {
                                     send_message(
                                         sender_arc_mutex.clone(),
-                                        Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                                        Message::Text(
+                                            serde_json::to_string(&payload).unwrap_or_default(),
+                                        ),
                                     )
                                     .await
                                 }
@@ -263,7 +273,9 @@ pub async fn accept_mutate_txn_connection<M>(
 
                                     send_message(
                                         sender_arc_mutex.clone(),
-                                        Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                                        Message::Text(
+                                            serde_json::to_string(&payload).unwrap_or_default(),
+                                        ),
                                     )
                                     .await
                                 }

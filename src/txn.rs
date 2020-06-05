@@ -10,7 +10,10 @@ use dgraph_tonic::{Mutate, Mutation, Query};
 
 use crate::models::{MutationPayload, QueryPayload, RequestPayload, ResponsePayload};
 
-pub async fn discard_txn<M>(request_id: Option<String>, txn_arc_mutex: Arc<Mutex<Option<M>>>) -> Result<ResponsePayload>
+pub async fn discard_txn<M>(
+    request_id: Option<String>,
+    txn_arc_mutex: Arc<Mutex<Option<M>>>,
+) -> Result<ResponsePayload>
 where
     M: Mutate,
 {
@@ -73,7 +76,9 @@ where
                     error!("invalid request {:?}", request);
                     Err(anyhow!("invalid request {:?}", request))
                 }
-                Some(query) => query_with_vars(request.id, txn_arc_mutex.clone(), query.clone()).await,
+                Some(query) => {
+                    query_with_vars(request.id, txn_arc_mutex.clone(), query.clone()).await
+                }
             },
         },
     }
@@ -118,7 +123,10 @@ where
     }
 }
 
-async fn commit_txn<M>(request_id: Option<String>, txn_arc_mutex: Arc<Mutex<Option<M>>>) -> Result<ResponsePayload>
+async fn commit_txn<M>(
+    request_id: Option<String>,
+    txn_arc_mutex: Arc<Mutex<Option<M>>>,
+) -> Result<ResponsePayload>
 where
     M: Mutate,
 {
