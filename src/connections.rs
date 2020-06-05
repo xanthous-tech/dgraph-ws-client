@@ -1,3 +1,4 @@
+use std::env;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -59,9 +60,10 @@ pub async fn accept_query_txn_connection<Q>(
                 .await
             }
             Ok(m) => match m {
-                Message::Ping(ping) => {
+                Message::Ping(_) => {
                     increment_counter(counter.clone());
-                    send_message(sender_arc_mutex.clone(), Message::Pong(ping)).await
+                    Ok(())
+                    // send_message(sender_arc_mutex.clone(), Message::Pong(ping)).await
                 }
                 Message::Pong(_) => Ok(()),
                 Message::Close(_) => {
@@ -161,9 +163,10 @@ pub async fn accept_mutate_txn_connection<M>(
                 }
             }
             Ok(m) => match m {
-                Message::Ping(ping) => {
+                Message::Ping(_) => {
                     increment_counter(counter.clone());
-                    send_message(sender_arc_mutex.clone(), Message::Pong(ping)).await
+                    Ok(())
+                    // send_message(sender_arc_mutex.clone(), Message::Pong(ping)).await
                 }
                 Message::Pong(_) => Ok(()),
                 Message::Close(_) => {
@@ -249,7 +252,15 @@ async fn auto_close_connection(
     counter: Arc<AtomicU32>,
     prev_count: Arc<AtomicU32>,
 ) -> () {
-    let mut interval = tokio::time::interval(Duration::from_millis(10000));
+    let timeout = match env::var("CONNECTION_CHECK_INTERVAL") {
+        Ok(val) => val.parse::<u64>().unwrap_or(5000),
+        Err(_) => 5000,
+    };
+    let retry_count = match env::var("CONNECTION_CHECK_RETRY") {
+        Ok(val) => val.parse::<u32>().unwrap_or(3),
+        Err(_) => 3,
+    };
+    let mut interval = tokio::time::interval(Duration::from_millis(timeout));
 
     let same_count = Arc::new(AtomicU32::new(0));
 
@@ -262,7 +273,7 @@ async fn auto_close_connection(
         } else {
             let sc = same_count.fetch_add(1, Ordering::Relaxed);
             debug!("txn is not alive. Same Count - {}", sc);
-            if sc >= 6 {
+            if sc >= retry_count {
                 info!("closing connection");
                 let result = send_message(sender_arc_mutex.clone(), Message::Close(None)).await;
                 match result {
