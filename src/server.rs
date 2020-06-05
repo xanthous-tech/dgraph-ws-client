@@ -7,7 +7,7 @@ use hyper::header::{HeaderValue, CONNECTION, UPGRADE};
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use log::{debug, info, error};
+use log::{debug, error, info};
 use ring::digest::{digest, SHA1_FOR_LEGACY_USE_ONLY};
 
 use crate::channels::{
