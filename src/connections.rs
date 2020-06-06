@@ -51,14 +51,10 @@ pub async fn accept_query_txn_connection<Q>(
                 Message::Pong(_) => {
                     debug!("received pong");
                     Ok(())
-                },
+                }
                 Message::Close(c) => {
                     kill_task(shutdown_hook_arc_mutex.clone()).await;
-                    send_message(
-                        sender_arc_mutex.clone(),
-                        Message::Close(c),
-                    )
-                    .await
+                    send_message(sender_arc_mutex.clone(), Message::Close(c)).await
                 }
                 Message::Text(t) => {
                     let parsed: Result<RequestPayload, _> = serde_json::from_str(t.as_str());
@@ -173,7 +169,7 @@ pub async fn accept_mutate_txn_connection<M>(
                 Message::Pong(_) => {
                     debug!("received pong");
                     Ok(())
-                },
+                }
                 Message::Close(_) => {
                     debug!("discarding txn on close");
                     let response = discard_txn(None, txn_arc_mutex.clone()).await;

@@ -1,14 +1,16 @@
-use std::sync::atomic::{AtomicU32};
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
-use futures::StreamExt;
-use futures::future::{select, FutureExt, TryFutureExt};
 use dgraph_tonic::Client;
+use futures::future::{select, FutureExt, TryFutureExt};
+use futures::StreamExt;
 use hyper::upgrade::Upgraded;
 use log::debug;
 use tokio::sync::{oneshot, Mutex};
 
-use crate::connections::{accept_mutate_txn_connection, accept_query_txn_connection, auto_close_connection};
+use crate::connections::{
+    accept_mutate_txn_connection, accept_query_txn_connection, auto_close_connection,
+};
 
 pub async fn create_read_only_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
     let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
@@ -26,16 +28,19 @@ pub async fn create_read_only_txn_channel(upgraded: Upgraded, client: Arc<Client
     let (shutdown_hook, shutdown) = oneshot::channel::<()>();
     let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
     tokio::spawn(select(
-        auto_close_connection(
-            sender_arc_mutex.clone(),
-            query_count.clone(),
-        )
-        .boxed(),
+        auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
         shutdown.map_err(drop),
     ));
 
     debug!("creating new read only txn");
-    accept_query_txn_connection(sender_arc_mutex, receiver, txn_arc_mutex, shutdown_hook_arc_mutex.clone(), query_count.clone()).await
+    accept_query_txn_connection(
+        sender_arc_mutex,
+        receiver,
+        txn_arc_mutex,
+        shutdown_hook_arc_mutex.clone(),
+        query_count.clone(),
+    )
+    .await
 }
 
 pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
@@ -54,16 +59,19 @@ pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Clie
     let (shutdown_hook, shutdown) = oneshot::channel::<()>();
     let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
     tokio::spawn(select(
-        auto_close_connection(
-            sender_arc_mutex.clone(),
-            query_count.clone(),
-        )
-        .boxed(),
+        auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
         shutdown.map_err(drop),
     ));
 
     debug!("creating new best effort txn");
-    accept_query_txn_connection(sender_arc_mutex, receiver, txn_arc_mutex, shutdown_hook_arc_mutex.clone(), query_count.clone()).await
+    accept_query_txn_connection(
+        sender_arc_mutex,
+        receiver,
+        txn_arc_mutex,
+        shutdown_hook_arc_mutex.clone(),
+        query_count.clone(),
+    )
+    .await
 }
 
 pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
@@ -82,14 +90,17 @@ pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>)
     let (shutdown_hook, shutdown) = oneshot::channel::<()>();
     let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
     tokio::spawn(select(
-        auto_close_connection(
-            sender_arc_mutex.clone(),
-            query_count.clone(),
-        )
-        .boxed(),
+        auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
         shutdown.map_err(drop),
     ));
 
     debug!("creating new mutated txn");
-    accept_mutate_txn_connection(sender_arc_mutex, receiver, txn_arc_mutex, shutdown_hook_arc_mutex.clone(), query_count.clone()).await
+    accept_mutate_txn_connection(
+        sender_arc_mutex,
+        receiver,
+        txn_arc_mutex,
+        shutdown_hook_arc_mutex.clone(),
+        query_count.clone(),
+    )
+    .await
 }
