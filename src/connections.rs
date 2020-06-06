@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use dgraph_tonic::{Mutate, Query};
 use futures::future::{select, FutureExt, TryFutureExt};
-use futures::stream::SplitSink;
+use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
-use log::{debug, error, info};
+use log::{debug, error};
 use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::WebSocketStream;
 use tungstenite::{Error, Message};
@@ -17,25 +17,19 @@ use crate::models::{RequestPayload, ResponsePayload};
 use crate::txn::{discard_txn, process_mutate_txn_request, process_query_txn_request};
 
 pub async fn accept_query_txn_connection<Q>(
-    stream: WebSocketStream<Upgraded>,
+    sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
+    mut receiver: SplitStream<WebSocketStream<Upgraded>>,
     txn_arc_mutex: Arc<Mutex<Option<Q>>>,
+    query_count: Arc<AtomicU32>,
 ) where
     Q: Query,
 {
-    let (sender, mut receiver) = stream.split();
-
-    let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
-
-    let counter = Arc::new(AtomicU32::new(0));
-    let prev_count = Arc::new(AtomicU32::new(0));
-
     let (shutdown_hook, shutdown) = oneshot::channel::<()>();
     let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
     tokio::spawn(select(
         auto_close_connection(
             sender_arc_mutex.clone(),
-            counter.clone(),
-            prev_count.clone(),
+            query_count.clone(),
         )
         .boxed(),
         shutdown.map_err(drop),
@@ -61,18 +55,23 @@ pub async fn accept_query_txn_connection<Q>(
                 .await
             }
             Ok(m) => match m {
-                Message::Ping(_) => {
-                    increment_counter(counter.clone());
+                Message::Ping(ping) => {
+                    debug!("received ping {:?}", ping);
                     Ok(())
-                    // send_message(sender_arc_mutex.clone(), Message::Pong(ping)).await
                 }
-                Message::Pong(_) => Ok(()),
-                Message::Close(_) => {
+                Message::Pong(_) => {
+                    debug!("received pong");
+                    Ok(())
+                },
+                Message::Close(c) => {
                     kill_task(shutdown_hook_arc_mutex.clone()).await;
-                    break;
+                    send_message(
+                        sender_arc_mutex.clone(),
+                        Message::Close(c),
+                    )
+                    .await
                 }
                 Message::Text(t) => {
-                    increment_counter(counter.clone());
                     let parsed: Result<RequestPayload, _> = serde_json::from_str(t.as_str());
                     match parsed {
                         Err(e) => {
@@ -91,9 +90,11 @@ pub async fn accept_query_txn_connection<Q>(
                             .await
                         }
                         Ok(request) => {
+                            increment_counter(query_count.clone());
                             let response =
                                 process_query_txn_request(txn_arc_mutex.clone(), request.clone())
                                     .await;
+                            decrement_counter(query_count.clone());
                             match response {
                                 Ok(payload) => {
                                     send_message(
@@ -135,25 +136,19 @@ pub async fn accept_query_txn_connection<Q>(
 }
 
 pub async fn accept_mutate_txn_connection<M>(
-    stream: WebSocketStream<Upgraded>,
+    sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
+    mut receiver: SplitStream<WebSocketStream<Upgraded>>,
     txn_arc_mutex: Arc<Mutex<Option<M>>>,
+    query_count: Arc<AtomicU32>,
 ) where
     M: Mutate,
 {
-    let (sender, mut receiver) = stream.split();
-
-    let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
-
-    let counter = Arc::new(AtomicU32::new(0));
-    let prev_count = Arc::new(AtomicU32::new(0));
-
     let (shutdown_hook, shutdown) = oneshot::channel::<()>();
     let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
     tokio::spawn(select(
         auto_close_connection(
             sender_arc_mutex.clone(),
-            counter.clone(),
-            prev_count.clone(),
+            query_count.clone(),
         )
         .boxed(),
         shutdown.map_err(drop),
@@ -192,12 +187,14 @@ pub async fn accept_mutate_txn_connection<M>(
                 }
             }
             Ok(m) => match m {
-                Message::Ping(_) => {
-                    increment_counter(counter.clone());
+                Message::Ping(ping) => {
+                    debug!("received ping {:?}", ping);
                     Ok(())
-                    // send_message(sender_arc_mutex.clone(), Message::Pong(ping)).await
                 }
-                Message::Pong(_) => Ok(()),
+                Message::Pong(_) => {
+                    debug!("received pong");
+                    Ok(())
+                },
                 Message::Close(_) => {
                     debug!("discarding txn on close");
                     let response = discard_txn(None, txn_arc_mutex.clone()).await;
@@ -230,7 +227,6 @@ pub async fn accept_mutate_txn_connection<M>(
                     break;
                 }
                 Message::Text(t) => {
-                    increment_counter(counter.clone());
                     let parsed: Result<RequestPayload, _> = serde_json::from_str(t.as_str());
                     match parsed {
                         Err(e) => {
@@ -249,9 +245,11 @@ pub async fn accept_mutate_txn_connection<M>(
                             .await
                         }
                         Ok(request) => {
+                            increment_counter(query_count.clone());
                             let response =
                                 process_mutate_txn_request(txn_arc_mutex.clone(), request.clone())
                                     .await;
+                            decrement_counter(query_count.clone());
                             match response {
                                 Ok(payload) => {
                                     send_message(
@@ -306,8 +304,7 @@ async fn send_message(
 
 async fn auto_close_connection(
     sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
-    counter: Arc<AtomicU32>,
-    prev_count: Arc<AtomicU32>,
+    query_count: Arc<AtomicU32>,
 ) -> () {
     let timeout = match env::var("CONNECTION_CHECK_INTERVAL") {
         Ok(val) => val.parse::<u64>().unwrap_or(5000),
@@ -319,19 +316,17 @@ async fn auto_close_connection(
     };
     let mut interval = tokio::time::interval(Duration::from_millis(timeout));
 
-    let same_count = Arc::new(AtomicU32::new(0));
+    let retry = Arc::new(AtomicU32::new(0));
 
     while let Some(_) = interval.next().await {
-        let count = counter.load(Ordering::Relaxed);
-        let prev = prev_count.load(Ordering::Relaxed);
-        if count != prev {
-            debug!("txn is alive. Count - {}, Prev - {}", count, prev);
-            prev_count.store(count, Ordering::Relaxed);
+        let count = query_count.load(Ordering::Relaxed);
+        if count > 0 {
+            debug!("txn is alive. query count - {}", count);
         } else {
-            let sc = same_count.fetch_add(1, Ordering::Relaxed);
-            debug!("txn is not alive. Same Count - {}", sc);
-            if sc >= retry_count {
-                info!("closing connection");
+            let r = retry.fetch_add(1, Ordering::Relaxed);
+            debug!("txn is not alive. retry - {}", r);
+            if r >= retry_count {
+                debug!("closing connection");
                 let result = send_message(sender_arc_mutex.clone(), Message::Close(None)).await;
                 match result {
                     Ok(_) => (),
@@ -359,5 +354,11 @@ async fn kill_task(shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>
 }
 
 fn increment_counter(counter: Arc<AtomicU32>) {
+    debug!("incrementing counter");
     counter.fetch_add(1, Ordering::Relaxed);
+}
+
+fn decrement_counter(counter: Arc<AtomicU32>) {
+    debug!("decrementing counter");
+    counter.fetch_sub(1, Ordering::Relaxed);
 }

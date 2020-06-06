@@ -101,7 +101,6 @@ pub async fn build(addr: SocketAddr, client_arc: Arc<Client>) {
                                                 .await;
                                             }
                                         } else {
-                                            info!("creating mutated txn");
                                             create_mutated_txn_channel(
                                                 upgraded,
                                                 client_four.clone(),

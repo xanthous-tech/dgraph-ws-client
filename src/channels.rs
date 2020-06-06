@@ -1,9 +1,11 @@
+use std::sync::atomic::{AtomicU32};
 use std::sync::Arc;
 
 use dgraph_tonic::Client;
 use hyper::upgrade::Upgraded;
 use log::debug;
 use tokio::sync::Mutex;
+use futures::StreamExt;
 
 use crate::connections::{accept_mutate_txn_connection, accept_query_txn_connection};
 
@@ -15,8 +17,13 @@ pub async fn create_read_only_txn_channel(upgraded: Upgraded, client: Arc<Client
     )
     .await;
     let txn_arc_mutex = Arc::new(Mutex::new(Some(client.new_read_only_txn())));
+
+    let (sender, receiver) = stream.split();
+    let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
+    let query_count = Arc::new(AtomicU32::new(0));
+
     debug!("creating new read only txn");
-    accept_query_txn_connection(stream, txn_arc_mutex).await
+    accept_query_txn_connection(sender_arc_mutex, receiver, txn_arc_mutex, query_count.clone()).await
 }
 
 pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
@@ -27,8 +34,13 @@ pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Clie
     )
     .await;
     let txn_arc_mutex = Arc::new(Mutex::new(Some(client.new_best_effort_txn())));
+
+    let (sender, receiver) = stream.split();
+    let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
+    let query_count = Arc::new(AtomicU32::new(0));
+
     debug!("creating new best effort txn");
-    accept_query_txn_connection(stream, txn_arc_mutex).await
+    accept_query_txn_connection(sender_arc_mutex, receiver, txn_arc_mutex, query_count.clone()).await
 }
 
 pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
@@ -39,6 +51,11 @@ pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>)
     )
     .await;
     let txn_arc_mutex = Arc::new(Mutex::new(Some(client.new_mutated_txn())));
+
+    let (sender, receiver) = stream.split();
+    let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
+    let query_count = Arc::new(AtomicU32::new(0));
+
     debug!("creating new mutated txn");
-    accept_mutate_txn_connection(stream, txn_arc_mutex).await
+    accept_mutate_txn_connection(sender_arc_mutex, receiver, txn_arc_mutex, query_count.clone()).await
 }
