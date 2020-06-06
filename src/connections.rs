@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dgraph_tonic::{Mutate, Query};
-use futures::future::{select, FutureExt, TryFutureExt};
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
@@ -20,21 +19,11 @@ pub async fn accept_query_txn_connection<Q>(
     sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
     mut receiver: SplitStream<WebSocketStream<Upgraded>>,
     txn_arc_mutex: Arc<Mutex<Option<Q>>>,
+    shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     query_count: Arc<AtomicU32>,
 ) where
     Q: Query,
 {
-    let (shutdown_hook, shutdown) = oneshot::channel::<()>();
-    let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
-    tokio::spawn(select(
-        auto_close_connection(
-            sender_arc_mutex.clone(),
-            query_count.clone(),
-        )
-        .boxed(),
-        shutdown.map_err(drop),
-    ));
-
     while let Some(message) = receiver.next().await {
         // TODO: better error message by capturing the receive error
         let _result = match message {
@@ -139,21 +128,11 @@ pub async fn accept_mutate_txn_connection<M>(
     sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
     mut receiver: SplitStream<WebSocketStream<Upgraded>>,
     txn_arc_mutex: Arc<Mutex<Option<M>>>,
+    shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     query_count: Arc<AtomicU32>,
 ) where
     M: Mutate,
 {
-    let (shutdown_hook, shutdown) = oneshot::channel::<()>();
-    let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
-    tokio::spawn(select(
-        auto_close_connection(
-            sender_arc_mutex.clone(),
-            query_count.clone(),
-        )
-        .boxed(),
-        shutdown.map_err(drop),
-    ));
-
     while let Some(message) = receiver.next().await {
         // TODO: better error message by capturing the receive error
         let _result = match message {
@@ -302,7 +281,7 @@ async fn send_message(
     }
 }
 
-async fn auto_close_connection(
+pub async fn auto_close_connection(
     sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
     query_count: Arc<AtomicU32>,
 ) -> () {
