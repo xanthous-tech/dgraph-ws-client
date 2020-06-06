@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dgraph_tonic::{Mutate, Query};
-use futures::future::{select, FutureExt, TryFutureExt};
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
@@ -20,118 +19,18 @@ pub async fn accept_query_txn_connection<Q>(
     sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
     mut receiver: SplitStream<WebSocketStream<Upgraded>>,
     txn_arc_mutex: Arc<Mutex<Option<Q>>>,
+    shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     query_count: Arc<AtomicU32>,
 ) where
-    Q: Query,
+    Q: Query + 'static,
 {
-    let (shutdown_hook, shutdown) = oneshot::channel::<()>();
-    let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
-    tokio::spawn(select(
-        auto_close_connection(
-            sender_arc_mutex.clone(),
-            query_count.clone(),
-        )
-        .boxed(),
-        shutdown.map_err(drop),
-    ));
-
     while let Some(message) = receiver.next().await {
-        // TODO: better error message by capturing the receive error
-        let _result = match message {
-            Err(receive_error) => {
-                error!("{:?}", receive_error);
-                let payload = ResponsePayload {
-                    id: None,
-                    error: Some(format!("Message Receive Error: {:?}", receive_error)),
-                    message: None,
-                    json: None,
-                    uids_map: None,
-                };
+        let sam = sender_arc_mutex.clone();
+        let tam = txn_arc_mutex.clone();
+        let sham = shutdown_hook_arc_mutex.clone();
+        let qc = query_count.clone();
 
-                send_message(
-                    sender_arc_mutex.clone(),
-                    Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
-                )
-                .await
-            }
-            Ok(m) => match m {
-                Message::Ping(ping) => {
-                    debug!("received ping {:?}", ping);
-                    Ok(())
-                }
-                Message::Pong(_) => {
-                    debug!("received pong");
-                    Ok(())
-                },
-                Message::Close(c) => {
-                    kill_task(shutdown_hook_arc_mutex.clone()).await;
-                    send_message(
-                        sender_arc_mutex.clone(),
-                        Message::Close(c),
-                    )
-                    .await
-                }
-                Message::Text(t) => {
-                    let parsed: Result<RequestPayload, _> = serde_json::from_str(t.as_str());
-                    match parsed {
-                        Err(e) => {
-                            let payload = ResponsePayload {
-                                id: None,
-                                error: Some(format!("Parse Error: {:?}", e)),
-                                message: None,
-                                json: None,
-                                uids_map: None,
-                            };
-
-                            send_message(
-                                sender_arc_mutex.clone(),
-                                Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
-                            )
-                            .await
-                        }
-                        Ok(request) => {
-                            increment_counter(query_count.clone());
-                            let response =
-                                process_query_txn_request(txn_arc_mutex.clone(), request.clone())
-                                    .await;
-                            decrement_counter(query_count.clone());
-                            match response {
-                                Ok(payload) => {
-                                    send_message(
-                                        sender_arc_mutex.clone(),
-                                        Message::Text(
-                                            serde_json::to_string(&payload).unwrap_or_default(),
-                                        ),
-                                    )
-                                    .await
-                                }
-                                Err(err) => {
-                                    let payload = ResponsePayload {
-                                        id: request.id,
-                                        error: Some(format!("Txn Error: {:?}", err)),
-                                        message: None,
-                                        json: None,
-                                        uids_map: None,
-                                    };
-
-                                    send_message(
-                                        sender_arc_mutex.clone(),
-                                        Message::Text(
-                                            serde_json::to_string(&payload).unwrap_or_default(),
-                                        ),
-                                    )
-                                    .await
-                                }
-                            }
-                        }
-                    }
-                }
-                Message::Binary(b) => {
-                    // TODO: process binary data as needed
-                    send_message(sender_arc_mutex.clone(), Message::Binary(b)).await
-                }
-            },
-        };
+        tokio::spawn(async move { process_query_message(sam, tam, sham, qc, message).await });
     }
 }
 
@@ -139,29 +38,176 @@ pub async fn accept_mutate_txn_connection<M>(
     sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
     mut receiver: SplitStream<WebSocketStream<Upgraded>>,
     txn_arc_mutex: Arc<Mutex<Option<M>>>,
+    shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     query_count: Arc<AtomicU32>,
+) where
+    M: Mutate + 'static,
+{
+    while let Some(message) = receiver.next().await {
+        let sam = sender_arc_mutex.clone();
+        let tam = txn_arc_mutex.clone();
+        let sham = shutdown_hook_arc_mutex.clone();
+        let qc = query_count.clone();
+
+        tokio::spawn(async move { process_mutate_message(sam, tam, sham, qc, message).await });
+    }
+}
+
+async fn process_query_message<Q>(
+    sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
+    txn_arc_mutex: Arc<Mutex<Option<Q>>>,
+    shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    query_count: Arc<AtomicU32>,
+    message: Result<Message, Error>,
+) where
+    Q: Query,
+{
+    // TODO: better error message by capturing the receive error
+    let _result = match message {
+        Err(receive_error) => {
+            error!("{:?}", receive_error);
+            let payload = ResponsePayload {
+                id: None,
+                error: Some(format!("Message Receive Error: {:?}", receive_error)),
+                message: None,
+                json: None,
+                uids_map: None,
+            };
+
+            send_message(
+                sender_arc_mutex.clone(),
+                Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+            )
+            .await
+        }
+        Ok(m) => match m {
+            Message::Ping(ping) => {
+                debug!("received ping {:?}", ping);
+                Ok(())
+            }
+            Message::Pong(_) => {
+                debug!("received pong");
+                Ok(())
+            }
+            Message::Close(c) => {
+                kill_task(shutdown_hook_arc_mutex.clone()).await;
+                send_message(sender_arc_mutex.clone(), Message::Close(c)).await
+            }
+            Message::Text(t) => {
+                let parsed: Result<RequestPayload, _> = serde_json::from_str(t.as_str());
+                match parsed {
+                    Err(e) => {
+                        let payload = ResponsePayload {
+                            id: None,
+                            error: Some(format!("Parse Error: {:?}", e)),
+                            message: None,
+                            json: None,
+                            uids_map: None,
+                        };
+
+                        send_message(
+                            sender_arc_mutex.clone(),
+                            Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                        )
+                        .await
+                    }
+                    Ok(request) => {
+                        increment_counter(query_count.clone());
+                        let response =
+                            process_query_txn_request(txn_arc_mutex.clone(), request.clone()).await;
+                        decrement_counter(query_count.clone());
+                        match response {
+                            Ok(payload) => {
+                                send_message(
+                                    sender_arc_mutex.clone(),
+                                    Message::Text(
+                                        serde_json::to_string(&payload).unwrap_or_default(),
+                                    ),
+                                )
+                                .await
+                            }
+                            Err(err) => {
+                                let payload = ResponsePayload {
+                                    id: request.id,
+                                    error: Some(format!("Txn Error: {:?}", err)),
+                                    message: None,
+                                    json: None,
+                                    uids_map: None,
+                                };
+
+                                send_message(
+                                    sender_arc_mutex.clone(),
+                                    Message::Text(
+                                        serde_json::to_string(&payload).unwrap_or_default(),
+                                    ),
+                                )
+                                .await
+                            }
+                        }
+                    }
+                }
+            }
+            Message::Binary(b) => {
+                // TODO: process binary data as needed
+                send_message(sender_arc_mutex.clone(), Message::Binary(b)).await
+            }
+        },
+    };
+}
+
+async fn process_mutate_message<M>(
+    sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
+    txn_arc_mutex: Arc<Mutex<Option<M>>>,
+    shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    query_count: Arc<AtomicU32>,
+    message: Result<Message, Error>,
 ) where
     M: Mutate,
 {
-    let (shutdown_hook, shutdown) = oneshot::channel::<()>();
-    let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
-    tokio::spawn(select(
-        auto_close_connection(
-            sender_arc_mutex.clone(),
-            query_count.clone(),
-        )
-        .boxed(),
-        shutdown.map_err(drop),
-    ));
+    // TODO: better error message by capturing the receive error
+    let _result = match message {
+        Err(receive_error) => {
+            error!("{:?}", receive_error);
+            debug!("discarding txn on error");
+            let response = discard_txn(None, txn_arc_mutex.clone()).await;
+            match response {
+                Ok(payload) => {
+                    send_message(
+                        sender_arc_mutex.clone(),
+                        Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                    )
+                    .await
+                }
+                Err(err) => {
+                    let payload = ResponsePayload {
+                        id: None,
+                        error: Some(format!("Txn Error: {:?}", err)),
+                        message: None,
+                        json: None,
+                        uids_map: None,
+                    };
 
-    while let Some(message) = receiver.next().await {
-        // TODO: better error message by capturing the receive error
-        let _result = match message {
-            Err(receive_error) => {
-                error!("{:?}", receive_error);
-                debug!("discarding txn on error");
+                    send_message(
+                        sender_arc_mutex.clone(),
+                        Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                    )
+                    .await
+                }
+            }
+        }
+        Ok(m) => match m {
+            Message::Ping(ping) => {
+                debug!("received ping {:?}", ping);
+                Ok(())
+            }
+            Message::Pong(_) => {
+                debug!("received pong");
+                Ok(())
+            }
+            Message::Close(c) => {
+                debug!("discarding txn on close");
                 let response = discard_txn(None, txn_arc_mutex.clone()).await;
-                match response {
+                let _ = match response {
                     Ok(payload) => {
                         send_message(
                             sender_arc_mutex.clone(),
@@ -184,110 +230,72 @@ pub async fn accept_mutate_txn_connection<M>(
                         )
                         .await
                     }
-                }
+                };
+
+                kill_task(shutdown_hook_arc_mutex.clone()).await;
+                send_message(sender_arc_mutex.clone(), Message::Close(c)).await
             }
-            Ok(m) => match m {
-                Message::Ping(ping) => {
-                    debug!("received ping {:?}", ping);
-                    Ok(())
-                }
-                Message::Pong(_) => {
-                    debug!("received pong");
-                    Ok(())
-                },
-                Message::Close(_) => {
-                    debug!("discarding txn on close");
-                    let response = discard_txn(None, txn_arc_mutex.clone()).await;
-                    let _ = match response {
-                        Ok(payload) => {
-                            send_message(
-                                sender_arc_mutex.clone(),
-                                Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
-                            )
-                            .await
-                        }
-                        Err(err) => {
-                            let payload = ResponsePayload {
-                                id: None,
-                                error: Some(format!("Txn Error: {:?}", err)),
-                                message: None,
-                                json: None,
-                                uids_map: None,
-                            };
+            Message::Text(t) => {
+                let parsed: Result<RequestPayload, _> = serde_json::from_str(t.as_str());
+                match parsed {
+                    Err(e) => {
+                        let payload = ResponsePayload {
+                            id: None,
+                            error: Some(format!("Parse Error: {:?}", e)),
+                            message: None,
+                            json: None,
+                            uids_map: None,
+                        };
 
-                            send_message(
-                                sender_arc_mutex.clone(),
-                                Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
-                            )
-                            .await
-                        }
-                    };
+                        send_message(
+                            sender_arc_mutex.clone(),
+                            Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
+                        )
+                        .await
+                    }
+                    Ok(request) => {
+                        increment_counter(query_count.clone());
+                        let response =
+                            process_mutate_txn_request(txn_arc_mutex.clone(), request.clone())
+                                .await;
+                        decrement_counter(query_count.clone());
+                        match response {
+                            Ok(payload) => {
+                                send_message(
+                                    sender_arc_mutex.clone(),
+                                    Message::Text(
+                                        serde_json::to_string(&payload).unwrap_or_default(),
+                                    ),
+                                )
+                                .await
+                            }
+                            Err(err) => {
+                                let payload = ResponsePayload {
+                                    id: request.id,
+                                    error: Some(format!("Txn Error: {:?}", err)),
+                                    message: None,
+                                    json: None,
+                                    uids_map: None,
+                                };
 
-                    kill_task(shutdown_hook_arc_mutex.clone()).await;
-                    break;
-                }
-                Message::Text(t) => {
-                    let parsed: Result<RequestPayload, _> = serde_json::from_str(t.as_str());
-                    match parsed {
-                        Err(e) => {
-                            let payload = ResponsePayload {
-                                id: None,
-                                error: Some(format!("Parse Error: {:?}", e)),
-                                message: None,
-                                json: None,
-                                uids_map: None,
-                            };
-
-                            send_message(
-                                sender_arc_mutex.clone(),
-                                Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
-                            )
-                            .await
-                        }
-                        Ok(request) => {
-                            increment_counter(query_count.clone());
-                            let response =
-                                process_mutate_txn_request(txn_arc_mutex.clone(), request.clone())
-                                    .await;
-                            decrement_counter(query_count.clone());
-                            match response {
-                                Ok(payload) => {
-                                    send_message(
-                                        sender_arc_mutex.clone(),
-                                        Message::Text(
-                                            serde_json::to_string(&payload).unwrap_or_default(),
-                                        ),
-                                    )
-                                    .await
-                                }
-                                Err(err) => {
-                                    let payload = ResponsePayload {
-                                        id: request.id,
-                                        error: Some(format!("Txn Error: {:?}", err)),
-                                        message: None,
-                                        json: None,
-                                        uids_map: None,
-                                    };
-
-                                    send_message(
-                                        sender_arc_mutex.clone(),
-                                        Message::Text(
-                                            serde_json::to_string(&payload).unwrap_or_default(),
-                                        ),
-                                    )
-                                    .await
-                                }
+                                send_message(
+                                    sender_arc_mutex.clone(),
+                                    Message::Text(
+                                        serde_json::to_string(&payload).unwrap_or_default(),
+                                    ),
+                                )
+                                .await
                             }
                         }
                     }
                 }
-                Message::Binary(b) => {
-                    // TODO: process binary data as needed
-                    send_message(sender_arc_mutex.clone(), Message::Binary(b)).await
-                }
-            },
-        };
-    }
+            }
+            Message::Binary(b) => {
+                // TODO: process binary data as needed
+                send_message(sender_arc_mutex.clone(), Message::Binary(b)).await
+            }
+        },
+    };
 }
 
 async fn send_message(
@@ -302,7 +310,7 @@ async fn send_message(
     }
 }
 
-async fn auto_close_connection(
+pub async fn auto_close_connection(
     sender_arc_mutex: Arc<Mutex<Option<SplitSink<WebSocketStream<Upgraded>, Message>>>>,
     query_count: Arc<AtomicU32>,
 ) -> () {
