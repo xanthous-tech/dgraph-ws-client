@@ -322,6 +322,7 @@ async fn auto_close_connection(
         let count = query_count.load(Ordering::Relaxed);
         if count > 0 {
             debug!("txn is alive. query count - {}", count);
+            retry.store(0, Ordering::Relaxed);
         } else {
             let r = retry.fetch_add(1, Ordering::Relaxed);
             debug!("txn is not alive. retry - {}", r);
