@@ -62,7 +62,7 @@ impl AlterPayload {
     }
 }
 
-pub mod alter_payload {
+mod alter_payload {
     use serde::{Deserialize, Serialize};
 
     // Did not model this as an i32 enum so wire version is

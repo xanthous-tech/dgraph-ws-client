@@ -28,10 +28,9 @@ async fn shutdown_signal() {
 }
 
 pub async fn build(addr: SocketAddr, dgraph_client: Arc<Client>) {
-    let dgraph_client = dgraph_client.clone();
     let make_svc = make_service_fn(|_| {
         let dgraph_client = dgraph_client.clone();
-        async move {
+        async {
             Ok::<_, hyper::Error>(service_fn(move |req| {
                 ws_client(req, dgraph_client.clone())
             }))
