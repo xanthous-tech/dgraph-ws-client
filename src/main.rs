@@ -22,7 +22,7 @@ async fn main() {
 
     let addresses = match env::var("DGRAPH_ALPHAS") {
         Ok(val) => val.clone(),
-        Err(_) => "http://localhost:8080".to_string(),
+        Err(_) => "http://localhost:9080".to_string(),
     };
 
     let address_vec = addresses.split(",").collect::<Vec<&str>>();
