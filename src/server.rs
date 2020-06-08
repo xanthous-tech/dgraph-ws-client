@@ -2,17 +2,17 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use dgraph_tonic::{Client};
+use dgraph_tonic::Client;
 use hyper::header::{HeaderValue, CONNECTION, UPGRADE};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use log::{debug, error, info};
 use ring::digest::{digest, SHA1_FOR_LEGACY_USE_ONLY};
 
+use crate::models::AlterPayload;
 use crate::channels::{
     create_best_effort_txn_channel, create_mutated_txn_channel, create_read_only_txn_channel,
 };
-use crate::models::AlterPayload;
 
 type GenericError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -56,7 +56,15 @@ async fn ws_client(req: Request<Body>, dgraph_client: Arc<Client>) -> Result<Res
         }
 
         (&Method::POST, "/alter") => {
-            return do_alter(req, dgraph_client).await
+            match do_alter(req, dgraph_client).await {
+                Ok(r) => {
+                    return Ok(r);
+                },
+                Err(e) => {
+                    *res.status_mut() = StatusCode::BAD_REQUEST;
+                    *res.body_mut() = Body::from(e.to_string());
+                }
+            }
         }
 
         (&Method::GET, "/txn") => {
@@ -140,8 +148,11 @@ async fn do_upgrade_websocket(req: Request<Body>, dgraph_client: Arc<Client>) {
 async fn do_alter(req: Request<Body>, dgraph_client: Arc<Client>) -> Result<Response<Body>, GenericError> {
     let req_body = hyper::body::to_bytes(req).await?;
     let alter_body: AlterPayload = serde_json::from_slice(req_body.to_vec().as_slice())?;
+    debug!("alter body {:?}", alter_body);
 
-    let _result = dgraph_client.alter(alter_body.into_operation()).await?;
+    let raw_result = dgraph_client.alter(alter_body.into_operation()).await?;
+    let result: serde_json::Value =  serde_json::from_slice(raw_result.data.as_slice())?;
+    debug!("alter result {}", result);
 
     let response = Response::new(Body::empty());
     Ok(response)
