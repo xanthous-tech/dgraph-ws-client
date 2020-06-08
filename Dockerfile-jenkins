@@ -1,0 +1,9 @@
+FROM registry-vpc.cn-zhangjiakou.aliyuncs.com/caminer/debian:buster-slim
+
+EXPOSE 9000
+
+WORKDIR /opt/dgraph-ws-client
+
+COPY dgraph-ws-client .
+
+CMD ["./dgraph-ws-client"]
