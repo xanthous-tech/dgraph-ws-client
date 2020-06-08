@@ -6,6 +6,6 @@ RUN mkdir -p /opt/dgraph-ws-client
 
 WORKDIR /opt/dgraph-ws-client
 
-COPY target/release/dgraph-ws-client .
+COPY dgraph-ws-client .
 
 CMD ["./dgraph-ws-client"]
