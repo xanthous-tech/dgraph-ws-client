@@ -63,12 +63,13 @@ impl AlterPayload {
         };
 
         dgraph_tonic::Operation {
-            schema: self.schema.unwrap_or(default_op.schema),
-            drop_all: self.drop_all.unwrap_or(default_op.drop_all),
-            drop_attr: self.drop_attr.unwrap_or(default_op.drop_attr),
-            drop_value: self.drop_value.unwrap_or(default_op.drop_value),
+            schema: self.schema.unwrap_or(default_op.schema).into(),
+            drop_all: self.drop_all.unwrap_or(default_op.drop_all).into(),
+            drop_attr: self.drop_attr.unwrap_or(default_op.drop_attr).into(),
+            drop_value: self.drop_value.unwrap_or(default_op.drop_value).into(),
             drop_op: alter_payload::get_operation_drop_op_val(self.drop_op)
-                .unwrap_or(default_op.drop_op),
+                .unwrap_or(default_op.drop_op)
+                .into(),
         }
     }
 }

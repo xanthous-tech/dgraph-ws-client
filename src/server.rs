@@ -61,6 +61,7 @@ async fn ws_client(req: Request<Body>, dgraph_client: Arc<Client>) -> Result<Res
                     return Ok(r);
                 },
                 Err(e) => {
+                    error!("Alter error: {}", e.to_string());
                     *res.status_mut() = StatusCode::BAD_REQUEST;
                     *res.body_mut() = Body::from(e.to_string());
                 }
