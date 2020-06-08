@@ -1,50 +1,106 @@
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
-use log::{info, debug};
-use tokio::net::TcpListener;
-use tokio::sync::Mutex;
 use dgraph_tonic::Client;
+use futures::future::{select, FutureExt, TryFutureExt};
+use futures::StreamExt;
+use hyper::upgrade::Upgraded;
+use log::debug;
+use tokio::sync::{oneshot, Mutex};
 
 use crate::connections::{
-  accept_query_txn_connection,
-  accept_mutate_txn_connection,
+    accept_mutate_txn_connection, accept_query_txn_connection, auto_close_connection,
 };
 
-pub async fn create_read_only_txn_channel(addr: &str, client: Arc<Client>) {
-  // Create the event loop and TCP listener we'll accept connections on.
-  let try_socket = TcpListener::bind(addr).await;
-  let mut listener = try_socket.expect("Failed to bind");
-  info!("Read-Only Txn Channel Listening on: {}", addr);
+pub async fn create_read_only_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
+    let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        upgraded,
+        tungstenite::protocol::Role::Server,
+        None,
+    )
+    .await;
+    let txn_arc_mutex = Arc::new(Mutex::new(Some(client.new_read_only_txn())));
 
-  while let Ok((stream, _)) = listener.accept().await {
-    debug!("creating new read-only txn");
-    let txn = Arc::new(Mutex::new(Some(client.new_read_only_txn())));
-    tokio::spawn(accept_query_txn_connection(stream, txn));
-  }
+    let (sender, receiver) = stream.split();
+    let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
+    let query_count = Arc::new(AtomicU32::new(0));
+
+    let (shutdown_hook, shutdown) = oneshot::channel::<()>();
+    let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
+    tokio::spawn(select(
+        auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
+        shutdown.map_err(drop),
+    ));
+
+    debug!("creating new read only txn");
+    accept_query_txn_connection(
+        sender_arc_mutex,
+        receiver,
+        txn_arc_mutex,
+        shutdown_hook_arc_mutex.clone(),
+        query_count.clone(),
+    )
+    .await
 }
 
-pub async fn create_best_effort_txn_channel(addr: &str, client: Arc<Client>) {
-  // Create the event loop and TCP listener we'll accept connections on.
-  let try_socket = TcpListener::bind(addr).await;
-  let mut listener = try_socket.expect("Failed to bind");
-  info!("Best-Effort Txn Channel Listening on: {}", addr);
+pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
+    let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        upgraded,
+        tungstenite::protocol::Role::Server,
+        None,
+    )
+    .await;
+    let txn_arc_mutex = Arc::new(Mutex::new(Some(client.new_best_effort_txn())));
 
-  while let Ok((stream, _)) = listener.accept().await {
-    debug!("creating new best-effort txn");
-    let txn = Arc::new(Mutex::new(Some(client.new_best_effort_txn())));
-    tokio::spawn(accept_query_txn_connection(stream, txn));
-  }
+    let (sender, receiver) = stream.split();
+    let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
+    let query_count = Arc::new(AtomicU32::new(0));
+
+    let (shutdown_hook, shutdown) = oneshot::channel::<()>();
+    let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
+    tokio::spawn(select(
+        auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
+        shutdown.map_err(drop),
+    ));
+
+    debug!("creating new best effort txn");
+    accept_query_txn_connection(
+        sender_arc_mutex,
+        receiver,
+        txn_arc_mutex,
+        shutdown_hook_arc_mutex.clone(),
+        query_count.clone(),
+    )
+    .await
 }
 
-pub async fn create_mutated_txn_channel(addr: &str, client: Arc<Client>) {
-  // Create the event loop and TCP listener we'll accept connections on.
-  let try_socket = TcpListener::bind(addr).await;
-  let mut listener = try_socket.expect("Failed to bind");
-  info!("Mutated Txn Channel Listening on: {}", addr);
+pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
+    let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        upgraded,
+        tungstenite::protocol::Role::Server,
+        None,
+    )
+    .await;
+    let txn_arc_mutex = Arc::new(Mutex::new(Some(client.new_mutated_txn())));
 
-  while let Ok((stream, _)) = listener.accept().await {
+    let (sender, receiver) = stream.split();
+    let sender_arc_mutex = Arc::new(Mutex::new(Some(sender)));
+    let query_count = Arc::new(AtomicU32::new(0));
+
+    let (shutdown_hook, shutdown) = oneshot::channel::<()>();
+    let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
+    tokio::spawn(select(
+        auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
+        shutdown.map_err(drop),
+    ));
+
     debug!("creating new mutated txn");
-    let txn = Arc::new(Mutex::new(Some(client.new_mutated_txn())));
-    tokio::spawn(accept_mutate_txn_connection(stream, txn));
-  }
+    accept_mutate_txn_connection(
+        sender_arc_mutex,
+        receiver,
+        txn_arc_mutex,
+        shutdown_hook_arc_mutex.clone(),
+        query_count.clone(),
+    )
+    .await
 }
