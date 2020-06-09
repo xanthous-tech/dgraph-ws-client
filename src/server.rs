@@ -152,9 +152,8 @@ async fn do_alter(req: Request<Body>, dgraph_client: Arc<Client>) -> Result<Resp
     debug!("alter body {:?}", alter_body);
 
     let raw_result = dgraph_client.alter(alter_body.into_operation()).await?;
-    let result: serde_json::Value =  serde_json::from_slice(raw_result.data.as_slice())?;
-    debug!("alter result {}", result);
+    debug!("alter result {:?}", raw_result);
 
-    let response = Response::new(Body::empty());
+    let response = Response::new(Body::from("{\"status\": \"OK\"}"));
     Ok(response)
 }
