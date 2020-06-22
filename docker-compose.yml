@@ -1,0 +1,13 @@
+version: "3"
+
+services:
+  dgraph-client:
+    build: .
+    ports:
+      - "9000:9000"
+    environment:
+      DGRAPH_ALPHAS: http://localhost:9080
+      RUST_LOG: info
+      LISTEN_ADDRESS: 0.0.0.0:9000
+      CONNECTION_CHECK_INTERVAL: 5000
+      CONNECTION_CHECK_RETRY: 3
