@@ -388,5 +388,10 @@ fn generate_mutation(mutate: MutationPayload, commit_now: Option<bool>) -> Mutat
         None => Default::default(),
     };
 
+    mutation.cond = match mutate.cond {
+        Some(v) => v,
+        None => Default::default(),
+    };
+
     mutation
 }
