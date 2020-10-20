@@ -155,7 +155,7 @@ async fn process_query_message<Q>(
                                                      | ClientError::CannotMutate(status)
                                                      | ClientError::CannotQuery(status)
                                                      | ClientError::CannotRefreshLogin(status) => {
-                                                        error_msg.replace(format!("{{\"status\": {:}, \"message\": \"{:}\"}}", status.code(), status.message()));
+                                                        error_msg.replace(format!("{{\"status\": \"{:}\", \"code\": {:}, \"message\": \"{:}\"}}", status.code(), status.code() as i32, status.message()));
                                                     },
                                                     _ => {},
                                                 };
@@ -324,7 +324,7 @@ async fn process_mutate_message<M>(
                                                      | ClientError::CannotMutate(status)
                                                      | ClientError::CannotQuery(status)
                                                      | ClientError::CannotRefreshLogin(status) => {
-                                                        error_msg.replace(format!("{{\"status\": {:}, \"message\": \"{:}\"}}", status.code(), status.message()));
+                                                        error_msg.replace(format!("{{\"status\": \"{:}\", \"code\": {:}, \"message\": \"{:}\"}}", status.code(), status.code() as i32, status.message()));
                                                     },
                                                     _ => {},
                                                 };
