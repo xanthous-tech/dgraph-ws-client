@@ -95,6 +95,14 @@ pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>,
         shutdown.map_err(drop),
     ));
 
+    let _inc_txn_result: Result<Vec<u8>, RedisError> = redis_connection.xadd(
+        "incoming_txns",
+        "*",
+        &[
+            ("txnId", &txn_id.clone()),
+        ],
+    ).await;
+
     let _result: Result<Vec<u8>, RedisError> = redis_connection.xadd(
         format!("txn:{:}", txn_id.clone()),
         "*",
