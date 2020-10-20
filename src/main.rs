@@ -10,6 +10,7 @@ mod models;
 mod server;
 mod txn;
 
+use dotenv::dotenv;
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use log::info;
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
     let _ = env_logger::try_init();
 
     let addresses = match env::var("DGRAPH_ALPHAS") {
