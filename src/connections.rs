@@ -8,6 +8,7 @@ use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
 use log::{debug, error};
+use serde_json::json;
 use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::WebSocketStream;
 use tungstenite::{Error, Message};
@@ -53,14 +54,7 @@ pub async fn accept_mutate_txn_connection<M>(
         let qc = query_count.clone();
 
         tokio::spawn(async move {
-            process_mutate_message(
-                sam,
-                tam,
-                sham,
-                qc,
-                message,
-                id.clone(),
-            ).await
+            process_mutate_message(sam, tam, sham, qc, message, id.clone()).await
         });
     }
 }
@@ -139,29 +133,37 @@ async fn process_query_message<Q>(
                                 .await
                             }
                             Err(err) => {
-                                let mut error_msg = Some(format!("{{\"message\": \"Txn Error: {:?}\"}}", &err));
+                                let mut error_msg =
+                                    Some(format!("{{\"message\": \"Txn Error: {:?}\"}}", &err));
                                 if err.is::<DgraphError>() {
-                                    let dgraph_err: DgraphError = err.downcast::<DgraphError>().unwrap();
+                                    let dgraph_err: DgraphError =
+                                        err.downcast::<DgraphError>().unwrap();
                                     match dgraph_err {
                                         DgraphError::GrpcError(failure) => {
                                             if failure.is::<ClientError>() {
-                                                let client_err: ClientError = failure.downcast::<ClientError>().unwrap();
+                                                let client_err: ClientError =
+                                                    failure.downcast::<ClientError>().unwrap();
                                                 match client_err {
                                                     ClientError::CannotAlter(status)
-                                                     | ClientError::CannotCheckVersion(status)
-                                                     | ClientError::CannotCommitOrAbort(status)
-                                                     | ClientError::CannotDoRequest(status)
-                                                     | ClientError::CannotLogin(status)
-                                                     | ClientError::CannotMutate(status)
-                                                     | ClientError::CannotQuery(status)
-                                                     | ClientError::CannotRefreshLogin(status) => {
-                                                        error_msg.replace(format!("{{\"status\": \"{:?}\", \"message\": \"{:}\"}}", status.code(), status.message()));
-                                                    },
-                                                    _ => {},
+                                                    | ClientError::CannotCheckVersion(status)
+                                                    | ClientError::CannotCommitOrAbort(status)
+                                                    | ClientError::CannotDoRequest(status)
+                                                    | ClientError::CannotLogin(status)
+                                                    | ClientError::CannotMutate(status)
+                                                    | ClientError::CannotQuery(status)
+                                                    | ClientError::CannotRefreshLogin(status) => {
+                                                        let err = json!({
+                                                            "status": status.code().description(),
+                                                            "code": status.code() as i32,
+                                                            "message": status.message(),
+                                                        });
+                                                        error_msg.replace(err.to_string());
+                                                    }
+                                                    _ => {}
                                                 };
                                             }
-                                        },
-                                        _ => {},
+                                        }
+                                        _ => {}
                                     };
                                 }
                                 let payload = ResponsePayload {
@@ -308,29 +310,37 @@ async fn process_mutate_message<M>(
                                 .await
                             }
                             Err(err) => {
-                                let mut error_msg = Some(format!("{{\"message\": \"Txn Error: {:?}\"}}", &err));
+                                let mut error_msg =
+                                    Some(format!("{{\"message\": \"Txn Error: {:?}\"}}", &err));
                                 if err.is::<DgraphError>() {
-                                    let dgraph_err: DgraphError = err.downcast::<DgraphError>().unwrap();
+                                    let dgraph_err: DgraphError =
+                                        err.downcast::<DgraphError>().unwrap();
                                     match dgraph_err {
                                         DgraphError::GrpcError(failure) => {
                                             if failure.is::<ClientError>() {
-                                                let client_err: ClientError = failure.downcast::<ClientError>().unwrap();
+                                                let client_err: ClientError =
+                                                    failure.downcast::<ClientError>().unwrap();
                                                 match client_err {
                                                     ClientError::CannotAlter(status)
-                                                     | ClientError::CannotCheckVersion(status)
-                                                     | ClientError::CannotCommitOrAbort(status)
-                                                     | ClientError::CannotDoRequest(status)
-                                                     | ClientError::CannotLogin(status)
-                                                     | ClientError::CannotMutate(status)
-                                                     | ClientError::CannotQuery(status)
-                                                     | ClientError::CannotRefreshLogin(status) => {
-                                                        error_msg.replace(format!("{{\"status\": \"{:?}\", \"message\": \"{:}\"}}", status.code(), status.message()));
-                                                    },
-                                                    _ => {},
+                                                    | ClientError::CannotCheckVersion(status)
+                                                    | ClientError::CannotCommitOrAbort(status)
+                                                    | ClientError::CannotDoRequest(status)
+                                                    | ClientError::CannotLogin(status)
+                                                    | ClientError::CannotMutate(status)
+                                                    | ClientError::CannotQuery(status)
+                                                    | ClientError::CannotRefreshLogin(status) => {
+                                                        let err = json!({
+                                                            "status": status.code().description(),
+                                                            "code": status.code() as i32,
+                                                            "message": status.message(),
+                                                        });
+                                                        error_msg.replace(err.to_string());
+                                                    }
+                                                    _ => {}
                                                 };
                                             }
-                                        },
-                                        _ => {},
+                                        }
+                                        _ => {}
                                     };
                                 }
                                 let payload = ResponsePayload {
