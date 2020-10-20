@@ -1,7 +1,7 @@
 [package]
 name = "dgraph-ws-client"
-version = "0.2.4"
-authors = ["Simon Liang <no.lhr0909@gmail.com>"]
+version = "0.3.0"
+authors = ["Simon Liang <simon@x-tech.io>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,14 +9,15 @@ edition = "2018"
 [dependencies]
 tokio = { version = "0.2", features = ["full"] }
 hyper = "0.13"
-tungstenite = "0.10"
-tokio-tungstenite = "0.10"
+tungstenite = "0.11"
+tokio-tungstenite = "0.11"
 futures = "0.3"
 ring = "0.16"
 log = "0.4"
 env_logger = "0.7"
 dotenv = "0.15"
-dgraph-tonic = { version = "0.6" }
+# dgraph-tonic = { version = "0.8" }
+dgraph-tonic = { git = "https://github.com/xanthous-tech/dgraph-tonic", branch = "expose-ilazyclient" }
 anyhow = "1.0"
 thiserror = "1.0"
 serde = "1.0"

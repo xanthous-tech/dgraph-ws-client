@@ -12,6 +12,7 @@ use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::WebSocketStream;
 use tungstenite::{Error, Message};
 
+use crate::dgraph::TxnContextExport;
 use crate::models::{RequestPayload, ResponsePayload};
 use crate::txn::{discard_txn, process_mutate_txn_request, process_query_txn_request};
 
@@ -41,7 +42,7 @@ pub async fn accept_mutate_txn_connection<M>(
     shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     query_count: Arc<AtomicU32>,
 ) where
-    M: Mutate + 'static,
+    M: Mutate + TxnContextExport + 'static,
 {
     while let Some(message) = receiver.next().await {
         let sam = sender_arc_mutex.clone();
@@ -162,7 +163,7 @@ async fn process_mutate_message<M>(
     query_count: Arc<AtomicU32>,
     message: Result<Message, Error>,
 ) where
-    M: Mutate,
+    M: Mutate + TxnContextExport,
 {
     // TODO: better error message by capturing the receive error
     let _result = match message {

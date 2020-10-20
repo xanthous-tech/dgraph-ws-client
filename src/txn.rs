@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 
 use dgraph_tonic::{Mutate, Mutation, Query};
 
+use crate::dgraph::TxnContextExport;
 use crate::models::{MutationPayload, QueryPayload, RequestPayload, ResponsePayload};
 
 pub async fn discard_txn<M>(
@@ -15,7 +16,7 @@ pub async fn discard_txn<M>(
     txn_arc_mutex: Arc<Mutex<Option<M>>>,
 ) -> Result<ResponsePayload>
 where
-    M: Mutate,
+    M: Mutate + TxnContextExport,
 {
     let mut txn_guard = txn_arc_mutex.lock().await;
     let txn = txn_guard.take();
