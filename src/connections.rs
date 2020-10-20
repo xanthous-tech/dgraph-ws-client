@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use dgraph_tonic::{Mutate, Query};
+use dgraph_tonic::{ClientError, DgraphError, Mutate, Query};
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
@@ -128,9 +128,34 @@ async fn process_query_message<Q>(
                                 .await
                             }
                             Err(err) => {
+                                let mut error_msg = Some(format!("{{\"message\": \"Txn Error: {:?}\"}}", &err));
+                                if err.is::<DgraphError>() {
+                                    let dgraph_err: DgraphError = err.downcast::<DgraphError>().unwrap();
+                                    match dgraph_err {
+                                        DgraphError::GrpcError(failure) => {
+                                            if failure.is::<ClientError>() {
+                                                let client_err: ClientError = failure.downcast::<ClientError>().unwrap();
+                                                match client_err {
+                                                    ClientError::CannotAlter(status)
+                                                     | ClientError::CannotCheckVersion(status)
+                                                     | ClientError::CannotCommitOrAbort(status)
+                                                     | ClientError::CannotDoRequest(status)
+                                                     | ClientError::CannotLogin(status)
+                                                     | ClientError::CannotMutate(status)
+                                                     | ClientError::CannotQuery(status)
+                                                     | ClientError::CannotRefreshLogin(status) => {
+                                                        error_msg.replace(format!("{{\"status\": {:}, \"message\": \"{:}\"}}", status.code(), status.message()));
+                                                    },
+                                                    _ => {},
+                                                };
+                                            }
+                                        },
+                                        _ => {},
+                                    };
+                                }
                                 let payload = ResponsePayload {
                                     id: request.id,
-                                    error: Some(format!("Txn Error: {:?}", err)),
+                                    error: error_msg,
                                     message: None,
                                     json: None,
                                     uids_map: None,

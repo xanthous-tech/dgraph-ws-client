@@ -146,7 +146,7 @@ checksum = "8aebca1129a03dc6dc2b127edd729435bbc4a37e1d5f4d7513165089ceb02634"
 [[package]]
 name = "dgraph-tonic"
 version = "0.8.1"
-source = "git+https://github.com/xanthous-tech/dgraph-tonic?branch=expose-ilazyclient#834cb2401a1f5b2bbdb8c5a9b866ad0381a1e835"
+source = "git+https://github.com/xanthous-tech/dgraph-tonic?branch=expose-ilazyclient#5d8e29c9f1a3f107dd2ca0c4392575fbb0b9c4e3"
 dependencies = [
  "anyhow",
  "async-stream",

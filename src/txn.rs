@@ -37,7 +37,7 @@ where
                 }
                 Err(e) => {
                     error!("DgraphError {:?}", e);
-                    Err(anyhow!("DgraphError {:?}", e))
+                    Err(e)
                 }
             }
         }
@@ -150,7 +150,7 @@ where
                 }
                 Err(e) => {
                     error!("DgraphError {:?}", e);
-                    Err(anyhow!("DgraphError {:?}", e))
+                    Err(e)
                 }
             }
         }
@@ -199,7 +199,7 @@ where
                 }),
                 Err(e) => {
                     error!("DgraphError {:?}", e);
-                    Err(anyhow!("DgraphError {:?}", e))
+                    Err(e)
                 }
             }
         }
@@ -248,7 +248,7 @@ where
                     }),
                     Err(e) => {
                         error!("DgraphError {:?}", e);
-                        Err(anyhow!("DgraphError {:?}", e))
+                        Err(e)
                     }
                 }
             }
@@ -277,7 +277,7 @@ where
                     }),
                     Err(e) => {
                         error!("DgraphError {:?}", e);
-                        Err(anyhow!("DgraphError {:?}", e))
+                        Err(e)
                     }
                 }
             }
@@ -319,7 +319,7 @@ where
                     }),
                     Err(e) => {
                         error!("DgraphError {:?}", e);
-                        Err(anyhow!("DgraphError {:?}", e))
+                        Err(e)
                     }
                 }
             }
@@ -348,7 +348,7 @@ where
                     }),
                     Err(e) => {
                         error!("DgraphError {:?}", e);
-                        Err(anyhow!("DgraphError {:?}", e))
+                        Err(e)
                     }
                 }
             }
