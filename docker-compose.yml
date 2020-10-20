@@ -1,0 +1,66 @@
+version: '3.2'
+
+services:
+  dgraph-zero:
+    image: dgraph/dgraph:master
+    volumes:
+      - type: volume
+        source: dgraph
+        target: /dgraph
+        volume:
+          nocopy: true
+    ports:
+      - 5080:5080
+      - 6080:6080
+    restart: always
+    command: dgraph zero --my=dgraph-zero:5080
+  dgraph-alpha:
+    image: dgraph/dgraph:master
+    volumes:
+      - type: volume
+        source: dgraph
+        target: /dgraph
+        volume:
+          nocopy: true
+    ports:
+      - 8080:8080
+      - 9080:9080
+    restart: always
+    environment:
+      - DGRAPH_ALPHA_WHITELIST=0.0.0.0/0
+      - DGRAPH_ALPHA_LRU_MB=2048
+    command: dgraph alpha --my=dgraph-alpha:7080 --zero=dgraph-zero:5080
+  dgraph-ratel:
+    image: dgraph/dgraph:master
+    volumes:
+      - type: volume
+        source: dgraph
+        target: /dgraph
+        volume:
+          nocopy: true
+    ports:
+      - 8000:8000
+    command: dgraph-ratel
+    restart: always
+  redis:
+    image: redis:6
+    command: redis-server --appendonly yes
+    restart: always
+    ports:
+      - 6379:6379
+    volumes:
+      - redis:/data
+  redis-commander:
+    container_name: redis-commander
+    hostname: redis-commander
+    image: rediscommander/redis-commander:latest
+    restart: always
+    environment:
+    - REDIS_HOSTS=local:redis:6379
+    ports:
+    - "8081:8081"
+volumes:
+  dgraph:
+    driver: local
+  redis:
+    driver: local

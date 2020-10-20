@@ -8,6 +8,7 @@ use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
 use log::{debug, error};
+use redis::{AsyncCommands, RedisError, aio::MultiplexedConnection};
 use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::WebSocketStream;
 use tungstenite::{Error, Message};
@@ -42,11 +43,13 @@ pub async fn accept_mutate_txn_connection<M>(
     shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     query_count: Arc<AtomicU32>,
     txn_id: String,
+    redis_connection: MultiplexedConnection,
 ) where
     M: Mutate + TxnContextExport + 'static,
 {
     while let Some(message) = receiver.next().await {
         let id = txn_id.clone();
+        let conn = redis_connection.clone();
         let sam = sender_arc_mutex.clone();
         let tam = txn_arc_mutex.clone();
         let sham = shutdown_hook_arc_mutex.clone();
@@ -60,6 +63,7 @@ pub async fn accept_mutate_txn_connection<M>(
                 qc,
                 message,
                 id.clone(),
+                conn,
             ).await
         });
     }
@@ -155,7 +159,7 @@ async fn process_query_message<Q>(
                                                      | ClientError::CannotMutate(status)
                                                      | ClientError::CannotQuery(status)
                                                      | ClientError::CannotRefreshLogin(status) => {
-                                                        error_msg.replace(format!("{{\"status\": {:}, \"message\": \"{:}\"}}", status.code(), status.message()));
+                                                        error_msg.replace(format!("{{\"status\": \"{:}\", \"code\": {:}, \"message\": \"{:}\"}}", status.code(), status.code() as i32, status.message()));
                                                     },
                                                     _ => {},
                                                 };
@@ -199,6 +203,7 @@ async fn process_mutate_message<M>(
     query_count: Arc<AtomicU32>,
     message: Result<Message, Error>,
     txn_id: String,
+    mut redis_connection: MultiplexedConnection,
 ) where
     M: Mutate + TxnContextExport,
 {
@@ -210,6 +215,15 @@ async fn process_mutate_message<M>(
             let response = discard_txn(None, txn_arc_mutex.clone()).await;
             match response {
                 Ok(payload) => {
+                    let _result: Result<Vec<u8>, RedisError> = redis_connection.xadd(
+                        format!("txn:{:}", txn_id.clone()),
+                        "*",
+                        &[
+                            ("event", "txn_discarded"),
+                            ("reason", &format!("{:?}", receive_error)),
+                        ],
+                    ).await;
+
                     send_message(
                         sender_arc_mutex.clone(),
                         Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
@@ -217,6 +231,15 @@ async fn process_mutate_message<M>(
                     .await
                 }
                 Err(err) => {
+                    let _result: Result<Vec<u8>, RedisError> = redis_connection.xadd(
+                        format!("txn:{:}", txn_id.clone()),
+                        "*",
+                        &[
+                            ("event", "txn_discard_failed"),
+                            ("message", &format!("{:?}", err)),
+                        ],
+                    ).await;
+
                     let payload = ResponsePayload {
                         id: None,
                         error: Some(format!("Txn Error: {:?}", err)),
@@ -247,6 +270,15 @@ async fn process_mutate_message<M>(
                 let response = discard_txn(None, txn_arc_mutex.clone()).await;
                 let _ = match response {
                     Ok(payload) => {
+                        let _result: Result<Vec<u8>, RedisError> = redis_connection.xadd(
+                            format!("txn:{:}", txn_id.clone()),
+                            "*",
+                            &[
+                                ("event", "txn_discarded"),
+                                ("reason", "ws channel closed"),
+                            ],
+                        ).await;
+
                         send_message(
                             sender_arc_mutex.clone(),
                             Message::Text(serde_json::to_string(&payload).unwrap_or_default()),
@@ -254,6 +286,15 @@ async fn process_mutate_message<M>(
                         .await
                     }
                     Err(err) => {
+                        let _result: Result<Vec<u8>, RedisError> = redis_connection.xadd(
+                            format!("txn:{:}", txn_id.clone()),
+                            "*",
+                            &[
+                                ("event", "txn_discard_failed"),
+                                ("message", &format!("{:?}", err)),
+                            ],
+                        ).await;
+
                         let payload = ResponsePayload {
                             id: None,
                             error: Some(format!("Txn Error: {:?}", err)),
@@ -299,15 +340,32 @@ async fn process_mutate_message<M>(
                         decrement_counter(query_count.clone());
                         match response {
                             Ok(payload) => {
+                                let stringified = serde_json::to_string(&payload).unwrap_or_default();
+
+                                let _result: Result<Vec<u8>, RedisError> = redis_connection.xadd(
+                                    format!("txn:{:}", txn_id.clone()),
+                                    "*",
+                                    &[
+                                        ("event", "txn_request_processed"),
+                                        ("request", &t.as_str()),
+                                        ("response", &stringified),
+                                    ],
+                                ).await;
+
                                 send_message(
                                     sender_arc_mutex.clone(),
-                                    Message::Text(
-                                        serde_json::to_string(&payload).unwrap_or_default(),
-                                    ),
-                                )
-                                .await
+                                    Message::Text(stringified),
+                                ).await
                             }
                             Err(err) => {
+                                let _result: Result<Vec<u8>, RedisError> = redis_connection.xadd(
+                                    format!("txn:{:}", txn_id.clone()),
+                                    "*",
+                                    &[
+                                        ("event", "txn_request_errored"),
+                                        ("message", &format!("{:?}", err)),
+                                    ],
+                                ).await;
                                 let mut error_msg = Some(format!("{{\"message\": \"Txn Error: {:?}\"}}", &err));
                                 if err.is::<DgraphError>() {
                                     let dgraph_err: DgraphError = err.downcast::<DgraphError>().unwrap();
@@ -324,7 +382,7 @@ async fn process_mutate_message<M>(
                                                      | ClientError::CannotMutate(status)
                                                      | ClientError::CannotQuery(status)
                                                      | ClientError::CannotRefreshLogin(status) => {
-                                                        error_msg.replace(format!("{{\"status\": {:}, \"message\": \"{:}\"}}", status.code(), status.message()));
+                                                        error_msg.replace(format!("{{\"status\": \"{:}\", \"code\": {:}, \"message\": \"{:}\"}}", status.code(), status.code() as i32, status.message()));
                                                     },
                                                     _ => {},
                                                 };
