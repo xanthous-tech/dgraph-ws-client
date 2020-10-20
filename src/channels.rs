@@ -6,6 +6,7 @@ use futures::future::{select, FutureExt, TryFutureExt};
 use futures::StreamExt;
 use hyper::upgrade::Upgraded;
 use log::debug;
+use redis::{AsyncCommands, RedisError, aio::MultiplexedConnection};
 use tokio::sync::{oneshot, Mutex};
 
 use crate::connections::{
@@ -74,7 +75,7 @@ pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Clie
     .await
 }
 
-pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>, txn_id: String) {
+pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>, txn_id: String, mut redis_connection: MultiplexedConnection) {
     let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
         upgraded,
         tungstenite::protocol::Role::Server,
@@ -94,6 +95,12 @@ pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>,
         shutdown.map_err(drop),
     ));
 
+    let _result: Result<Vec<u8>, RedisError> = redis_connection.xadd(
+        format!("txn:{:}", txn_id.clone()),
+        "*",
+        &[("event", "txn_started")],
+    ).await;
+
     debug!("creating new mutated txn");
     accept_mutate_txn_connection(
         sender_arc_mutex,
@@ -102,6 +109,7 @@ pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>,
         shutdown_hook_arc_mutex.clone(),
         query_count.clone(),
         txn_id,
+        redis_connection.clone(),
     )
     .await
 }

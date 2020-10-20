@@ -1,6 +1,5 @@
 #[macro_use]
 extern crate anyhow;
-
 extern crate serde_json;
 
 mod channels;
@@ -15,6 +14,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use dgraph_tonic::Client;
+use redis::Client as RedisClient;
 use log::info;
 
 #[tokio::main]
@@ -32,6 +32,16 @@ async fn main() {
 
     let client_arc = Arc::new(Client::new(address_vec).expect("dgraph client"));
 
+    let redis_url = match env::var("REDIS_URL") {
+        Ok(val) => val.clone(),
+        Err(_) => "redis://localhost:6379/0".to_string(),
+    };
+
+    info!("creating redis connection against {:?}", redis_url);
+
+    let redis_client = RedisClient::open(redis_url).unwrap();
+    let redis_connection = redis_client.get_multiplexed_tokio_connection().await.unwrap();
+
     let addr_str = match env::var("LISTEN_ADDRESS") {
         Ok(val) => val.clone(),
         Err(_) => "0.0.0.0:9000".to_string(),
@@ -42,5 +52,5 @@ async fn main() {
 
     info!("server listening at {:}", addr);
 
-    server::build(addr, client_arc.clone()).await
+    server::build(addr, client_arc.clone(), redis_connection.clone()).await
 }

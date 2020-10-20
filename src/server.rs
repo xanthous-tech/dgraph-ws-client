@@ -8,6 +8,7 @@ use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use log::{debug, error, info};
+use redis::aio::MultiplexedConnection;
 use ring::digest::{digest, SHA1_FOR_LEGACY_USE_ONLY};
 
 use crate::channels::{
@@ -25,17 +26,21 @@ async fn shutdown_signal() {
         .expect("failed to install CTRL+C signal handler");
 }
 
-pub async fn build(addr: SocketAddr, client_arc: Arc<Client>) {
+pub async fn build(addr: SocketAddr, client_arc: Arc<Client>, redis_connection: MultiplexedConnection) {
+    let redis_conn1 = redis_connection.clone();
     let client_one = client_arc.clone();
     Arc::downgrade(&client_one);
     let make_svc = make_service_fn(|_socket: &AddrStream| {
+        let redis_conn2 = redis_conn1.clone();
         let client_two = client_one.clone();
         Arc::downgrade(&client_two);
         async move {
             let client_three = client_two.clone();
+            let redis_conn3 = redis_conn2.clone();
             Arc::downgrade(&client_three);
             Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
                 let client_four = client_three.clone();
+                let redis_conn4 = redis_conn3.clone();
                 async move {
                     let mut res = Response::new(Body::empty());
 
@@ -108,6 +113,7 @@ pub async fn build(addr: SocketAddr, client_arc: Arc<Client>) {
                                                 upgraded,
                                                 client_four.clone(),
                                                 sec_websocket_accept.clone(),
+                                                redis_conn4.clone(),
                                             )
                                             .await;
                                         }
