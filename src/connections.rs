@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use dgraph_tonic::{Mutate, Query};
+use dgraph_tonic::{ClientError, DgraphError, Mutate, Query};
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
@@ -12,6 +12,7 @@ use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::WebSocketStream;
 use tungstenite::{Error, Message};
 
+use crate::dgraph::TxnContextExport;
 use crate::models::{RequestPayload, ResponsePayload};
 use crate::txn::{discard_txn, process_mutate_txn_request, process_query_txn_request};
 
@@ -40,16 +41,27 @@ pub async fn accept_mutate_txn_connection<M>(
     txn_arc_mutex: Arc<Mutex<Option<M>>>,
     shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     query_count: Arc<AtomicU32>,
+    txn_id: String,
 ) where
-    M: Mutate + 'static,
+    M: Mutate + TxnContextExport + 'static,
 {
     while let Some(message) = receiver.next().await {
+        let id = txn_id.clone();
         let sam = sender_arc_mutex.clone();
         let tam = txn_arc_mutex.clone();
         let sham = shutdown_hook_arc_mutex.clone();
         let qc = query_count.clone();
 
-        tokio::spawn(async move { process_mutate_message(sam, tam, sham, qc, message).await });
+        tokio::spawn(async move {
+            process_mutate_message(
+                sam,
+                tam,
+                sham,
+                qc,
+                message,
+                id.clone(),
+            ).await
+        });
     }
 }
 
@@ -127,9 +139,34 @@ async fn process_query_message<Q>(
                                 .await
                             }
                             Err(err) => {
+                                let mut error_msg = Some(format!("{{\"message\": \"Txn Error: {:?}\"}}", &err));
+                                if err.is::<DgraphError>() {
+                                    let dgraph_err: DgraphError = err.downcast::<DgraphError>().unwrap();
+                                    match dgraph_err {
+                                        DgraphError::GrpcError(failure) => {
+                                            if failure.is::<ClientError>() {
+                                                let client_err: ClientError = failure.downcast::<ClientError>().unwrap();
+                                                match client_err {
+                                                    ClientError::CannotAlter(status)
+                                                     | ClientError::CannotCheckVersion(status)
+                                                     | ClientError::CannotCommitOrAbort(status)
+                                                     | ClientError::CannotDoRequest(status)
+                                                     | ClientError::CannotLogin(status)
+                                                     | ClientError::CannotMutate(status)
+                                                     | ClientError::CannotQuery(status)
+                                                     | ClientError::CannotRefreshLogin(status) => {
+                                                        error_msg.replace(format!("{{\"status\": {:}, \"message\": \"{:}\"}}", status.code(), status.message()));
+                                                    },
+                                                    _ => {},
+                                                };
+                                            }
+                                        },
+                                        _ => {},
+                                    };
+                                }
                                 let payload = ResponsePayload {
                                     id: request.id,
-                                    error: Some(format!("Txn Error: {:?}", err)),
+                                    error: error_msg,
                                     message: None,
                                     json: None,
                                     uids_map: None,
@@ -161,8 +198,9 @@ async fn process_mutate_message<M>(
     shutdown_hook_arc_mutex: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     query_count: Arc<AtomicU32>,
     message: Result<Message, Error>,
+    txn_id: String,
 ) where
-    M: Mutate,
+    M: Mutate + TxnContextExport,
 {
     // TODO: better error message by capturing the receive error
     let _result = match message {
@@ -270,9 +308,34 @@ async fn process_mutate_message<M>(
                                 .await
                             }
                             Err(err) => {
+                                let mut error_msg = Some(format!("{{\"message\": \"Txn Error: {:?}\"}}", &err));
+                                if err.is::<DgraphError>() {
+                                    let dgraph_err: DgraphError = err.downcast::<DgraphError>().unwrap();
+                                    match dgraph_err {
+                                        DgraphError::GrpcError(failure) => {
+                                            if failure.is::<ClientError>() {
+                                                let client_err: ClientError = failure.downcast::<ClientError>().unwrap();
+                                                match client_err {
+                                                    ClientError::CannotAlter(status)
+                                                     | ClientError::CannotCheckVersion(status)
+                                                     | ClientError::CannotCommitOrAbort(status)
+                                                     | ClientError::CannotDoRequest(status)
+                                                     | ClientError::CannotLogin(status)
+                                                     | ClientError::CannotMutate(status)
+                                                     | ClientError::CannotQuery(status)
+                                                     | ClientError::CannotRefreshLogin(status) => {
+                                                        error_msg.replace(format!("{{\"status\": {:}, \"message\": \"{:}\"}}", status.code(), status.message()));
+                                                    },
+                                                    _ => {},
+                                                };
+                                            }
+                                        },
+                                        _ => {},
+                                    };
+                                }
                                 let payload = ResponsePayload {
                                     id: request.id,
-                                    error: Some(format!("Txn Error: {:?}", err)),
+                                    error: error_msg,
                                     message: None,
                                     json: None,
                                     uids_map: None,

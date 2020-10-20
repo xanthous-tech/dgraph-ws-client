@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 
 use dgraph_tonic::{Mutate, Mutation, Query};
 
+use crate::dgraph::TxnContextExport;
 use crate::models::{MutationPayload, QueryPayload, RequestPayload, ResponsePayload};
 
 pub async fn discard_txn<M>(
@@ -15,7 +16,7 @@ pub async fn discard_txn<M>(
     txn_arc_mutex: Arc<Mutex<Option<M>>>,
 ) -> Result<ResponsePayload>
 where
-    M: Mutate,
+    M: Mutate + TxnContextExport,
 {
     let mut txn_guard = txn_arc_mutex.lock().await;
     let txn = txn_guard.take();
@@ -36,7 +37,7 @@ where
                 }
                 Err(e) => {
                     error!("DgraphError {:?}", e);
-                    Err(anyhow!("DgraphError {:?}", e))
+                    Err(e)
                 }
             }
         }
@@ -149,7 +150,7 @@ where
                 }
                 Err(e) => {
                     error!("DgraphError {:?}", e);
-                    Err(anyhow!("DgraphError {:?}", e))
+                    Err(e)
                 }
             }
         }
@@ -198,7 +199,7 @@ where
                 }),
                 Err(e) => {
                     error!("DgraphError {:?}", e);
-                    Err(anyhow!("DgraphError {:?}", e))
+                    Err(e)
                 }
             }
         }
@@ -247,7 +248,7 @@ where
                     }),
                     Err(e) => {
                         error!("DgraphError {:?}", e);
-                        Err(anyhow!("DgraphError {:?}", e))
+                        Err(e)
                     }
                 }
             }
@@ -276,7 +277,7 @@ where
                     }),
                     Err(e) => {
                         error!("DgraphError {:?}", e);
-                        Err(anyhow!("DgraphError {:?}", e))
+                        Err(e)
                     }
                 }
             }
@@ -318,7 +319,7 @@ where
                     }),
                     Err(e) => {
                         error!("DgraphError {:?}", e);
-                        Err(anyhow!("DgraphError {:?}", e))
+                        Err(e)
                     }
                 }
             }
@@ -347,7 +348,7 @@ where
                     }),
                     Err(e) => {
                         error!("DgraphError {:?}", e);
-                        Err(anyhow!("DgraphError {:?}", e))
+                        Err(e)
                     }
                 }
             }
@@ -385,6 +386,11 @@ fn generate_mutation(mutate: MutationPayload, commit_now: Option<bool>) -> Mutat
 
     mutation.del_nquads = match mutate.del_nquads {
         Some(v) => v.into_bytes(),
+        None => Default::default(),
+    };
+
+    mutation.cond = match mutate.cond {
+        Some(v) => v,
         None => Default::default(),
     };
 

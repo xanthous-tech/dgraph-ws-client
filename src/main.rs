@@ -5,6 +5,7 @@ extern crate serde_json;
 
 mod channels;
 mod connections;
+mod dgraph;
 mod models;
 mod server;
 mod txn;
