@@ -27,10 +27,13 @@ async fn shutdown_signal() {
 
 pub async fn build(addr: SocketAddr, client_arc: Arc<Client>) {
     let client_one = client_arc.clone();
+    Arc::downgrade(&client_one);
     let make_svc = make_service_fn(|_socket: &AddrStream| {
         let client_two = client_one.clone();
+        Arc::downgrade(&client_two);
         async move {
             let client_three = client_two.clone();
+            Arc::downgrade(&client_three);
             Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
                 let client_four = client_three.clone();
                 async move {
@@ -104,6 +107,7 @@ pub async fn build(addr: SocketAddr, client_arc: Arc<Client>) {
                                             create_mutated_txn_channel(
                                                 upgraded,
                                                 client_four.clone(),
+                                                sec_websocket_accept.clone(),
                                             )
                                             .await;
                                         }

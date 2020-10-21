@@ -19,6 +19,7 @@ pub struct MutationPayload {
     pub set_nquads: Option<String>,
     #[serde(rename = "delNquads")]
     pub del_nquads: Option<String>,
+    pub cond: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

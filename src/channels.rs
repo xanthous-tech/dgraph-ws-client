@@ -74,7 +74,7 @@ pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Clie
     .await
 }
 
-pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
+pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>, txn_id: String) {
     let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
         upgraded,
         tungstenite::protocol::Role::Server,
@@ -101,6 +101,7 @@ pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>)
         txn_arc_mutex,
         shutdown_hook_arc_mutex.clone(),
         query_count.clone(),
+        txn_id,
     )
     .await
 }
