@@ -9,6 +9,7 @@ use futures::{SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
 use log::{debug, error};
 use redis::{AsyncCommands, RedisError, aio::MultiplexedConnection};
+use serde_json::json;
 use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::WebSocketStream;
 use tungstenite::{Error, Message};
@@ -143,7 +144,9 @@ async fn process_query_message<Q>(
                                 .await
                             }
                             Err(err) => {
-                                let mut error_msg = Some(format!("{{\"message\": \"Txn Error: {:?}\"}}", &err));
+                                let mut error_msg = Some(json!({
+                                    "message": format!("Txn Error: {:?}", &err),
+                                }).to_string());
                                 if err.is::<DgraphError>() {
                                     let dgraph_err: DgraphError = err.downcast::<DgraphError>().unwrap();
                                     match dgraph_err {
@@ -159,7 +162,11 @@ async fn process_query_message<Q>(
                                                      | ClientError::CannotMutate(status)
                                                      | ClientError::CannotQuery(status)
                                                      | ClientError::CannotRefreshLogin(status) => {
-                                                        error_msg.replace(format!("{{\"status\": \"{:}\", \"code\": {:}, \"message\": \"{:}\"}}", status.code(), status.code() as i32, status.message()));
+                                                        error_msg.replace(json!({
+                                                            "status": status.code().description(),
+                                                            "code": status.code() as i32,
+                                                            "message": format!("{:}", status.message()),
+                                                        }).to_string());
                                                     },
                                                     _ => {},
                                                 };
@@ -366,7 +373,9 @@ async fn process_mutate_message<M>(
                                         ("message", &format!("{:?}", err)),
                                     ],
                                 ).await;
-                                let mut error_msg = Some(format!("{{\"message\": \"Txn Error: {:?}\"}}", &err));
+                                let mut error_msg = Some(json!({
+                                    "message": format!("Txn Error: {:?}", &err),
+                                }).to_string());
                                 if err.is::<DgraphError>() {
                                     let dgraph_err: DgraphError = err.downcast::<DgraphError>().unwrap();
                                     match dgraph_err {
@@ -382,7 +391,11 @@ async fn process_mutate_message<M>(
                                                      | ClientError::CannotMutate(status)
                                                      | ClientError::CannotQuery(status)
                                                      | ClientError::CannotRefreshLogin(status) => {
-                                                        error_msg.replace(format!("{{\"status\": \"{:}\", \"code\": {:}, \"message\": \"{:}\"}}", status.code(), status.code() as i32, status.message()));
+                                                        error_msg.replace(json!({
+                                                            "status": status.code().description(),
+                                                            "code": status.code() as i32,
+                                                            "message": format!("{:}", status.message()),
+                                                        }).to_string());
                                                     },
                                                     _ => {},
                                                 };
