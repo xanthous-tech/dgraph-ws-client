@@ -227,7 +227,7 @@ async fn process_mutate_message<M>(
                         "*",
                         &[
                             ("event", "txn_discarded"),
-                            ("reason", &format!("{:?}", receive_error)),
+                            ("reason", &format!("receive error: {:?}", receive_error)),
                         ],
                     ).await;
 
