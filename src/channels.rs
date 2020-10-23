@@ -1,3 +1,4 @@
+use tungstenite::protocol::WebSocketConfig;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
@@ -12,11 +13,19 @@ use crate::connections::{
     accept_mutate_txn_connection, accept_query_txn_connection, auto_close_connection,
 };
 
+fn get_websocket_config() -> WebSocketConfig {
+    WebSocketConfig {
+        max_send_queue: None,
+        max_message_size: Some(2048 << 20),  // 2GB
+        max_frame_size: Some(2048 << 20),    // 2GB
+    }
+}
+
 pub async fn create_read_only_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
     let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
         upgraded,
         tungstenite::protocol::Role::Server,
-        None,
+        Some(get_websocket_config()),
     )
     .await;
     let txn_arc_mutex = Arc::new(Mutex::new(Some(client.new_read_only_txn())));
@@ -47,7 +56,7 @@ pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Clie
     let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
         upgraded,
         tungstenite::protocol::Role::Server,
-        None,
+        Some(get_websocket_config()),
     )
     .await;
     let txn_arc_mutex = Arc::new(Mutex::new(Some(client.new_best_effort_txn())));
@@ -78,7 +87,7 @@ pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>,
     let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
         upgraded,
         tungstenite::protocol::Role::Server,
-        None,
+        Some(get_websocket_config()),
     )
     .await;
     let txn_arc_mutex = Arc::new(Mutex::new(Some(client.new_mutated_txn())));
