@@ -21,7 +21,7 @@ fn get_websocket_config() -> WebSocketConfig {
     }
 }
 
-pub async fn create_read_only_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
+pub async fn create_read_only_txn_channel(upgraded: Upgraded, client: Arc<Client>, disable_auto_close: bool) {
     let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
         upgraded,
         tungstenite::protocol::Role::Server,
@@ -36,10 +36,13 @@ pub async fn create_read_only_txn_channel(upgraded: Upgraded, client: Arc<Client
 
     let (shutdown_hook, shutdown) = oneshot::channel::<()>();
     let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
-    tokio::spawn(select(
-        auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
-        shutdown.map_err(drop),
-    ));
+
+    if !disable_auto_close {
+        tokio::spawn(select(
+            auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
+            shutdown.map_err(drop),
+        ));
+    }
 
     debug!("creating new read only txn");
     accept_query_txn_connection(
@@ -52,7 +55,7 @@ pub async fn create_read_only_txn_channel(upgraded: Upgraded, client: Arc<Client
     .await
 }
 
-pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Client>) {
+pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Client>, disable_auto_close: bool) {
     let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
         upgraded,
         tungstenite::protocol::Role::Server,
@@ -67,10 +70,13 @@ pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Clie
 
     let (shutdown_hook, shutdown) = oneshot::channel::<()>();
     let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
-    tokio::spawn(select(
-        auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
-        shutdown.map_err(drop),
-    ));
+
+    if !disable_auto_close {
+        tokio::spawn(select(
+            auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
+            shutdown.map_err(drop),
+        ));
+    }
 
     debug!("creating new best effort txn");
     accept_query_txn_connection(
@@ -83,7 +89,7 @@ pub async fn create_best_effort_txn_channel(upgraded: Upgraded, client: Arc<Clie
     .await
 }
 
-pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>, txn_id: String) {
+pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>, txn_id: String, disable_auto_close: bool) {
     let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
         upgraded,
         tungstenite::protocol::Role::Server,
@@ -98,10 +104,13 @@ pub async fn create_mutated_txn_channel(upgraded: Upgraded, client: Arc<Client>,
 
     let (shutdown_hook, shutdown) = oneshot::channel::<()>();
     let shutdown_hook_arc_mutex = Arc::new(Mutex::new(Some(shutdown_hook)));
-    tokio::spawn(select(
-        auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
-        shutdown.map_err(drop),
-    ));
+
+    if !disable_auto_close {
+        tokio::spawn(select(
+            auto_close_connection(sender_arc_mutex.clone(), query_count.clone()).boxed(),
+            shutdown.map_err(drop),
+        ));
+    }
 
     debug!("creating new mutated txn");
     accept_mutate_txn_connection(

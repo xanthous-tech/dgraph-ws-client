@@ -417,6 +417,8 @@ pub async fn auto_close_connection(
                     Ok(_) => (),
                     Err(e) => error!("Error sending close message {:?}", e),
                 };
+                query_count.store(0, Ordering::Relaxed);
+                retry.store(0, Ordering::Relaxed);
                 break;
             }
         }

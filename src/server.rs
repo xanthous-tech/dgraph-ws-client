@@ -89,17 +89,20 @@ pub async fn build(addr: SocketAddr, client_arc: Arc<Client>) {
                                         let read_only = query_map.get("read_only").unwrap_or(&"");
                                         let best_effort =
                                             query_map.get("best_effort").unwrap_or(&"");
+                                        let disable_auto_close = query_map.get("disable_auto_close").unwrap_or(&"");
                                         if *read_only == "true" {
                                             if *best_effort == "true" {
                                                 create_best_effort_txn_channel(
                                                     upgraded,
                                                     client_four.clone(),
+                                                    *disable_auto_close == "true",
                                                 )
                                                 .await;
                                             } else {
                                                 create_read_only_txn_channel(
                                                     upgraded,
                                                     client_four.clone(),
+                                                    *disable_auto_close == "true",
                                                 )
                                                 .await;
                                             }
@@ -108,6 +111,7 @@ pub async fn build(addr: SocketAddr, client_arc: Arc<Client>) {
                                                 upgraded,
                                                 client_four.clone(),
                                                 sec_websocket_accept.clone(),
+                                                *disable_auto_close == "true",
                                             )
                                             .await;
                                         }
